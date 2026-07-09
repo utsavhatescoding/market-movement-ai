@@ -269,6 +269,20 @@ def horizontal_bar(df, x, y, title, x_label, y_label, height=470):
 
 def clean_hscode(series):
     return series.astype(str).str.replace(".0", "", regex=False)
+def remove_total_rows(df, columns):
+    clean_df = df.copy()
+
+    for col in columns:
+        if col in clean_df.columns:
+            clean_df = clean_df[
+                ~clean_df[col]
+                .astype(str)
+                .str.strip()
+                .str.lower()
+                .isin(["total", "grand total"])
+            ]
+
+    return clean_df
 
 # -----------------------------
 # Prepare data
@@ -309,6 +323,7 @@ exports["HSCode"] = clean_hscode(exports["HSCode"])
 import_partner["HSCode"] = clean_hscode(import_partner["HSCode"])
 export_partner["HSCode"] = clean_hscode(export_partner["HSCode"])
 
+
 imports["Imports_Billion"] = imports["Imports_Value"] / 1_000_000
 imports["Revenue_Billion"] = imports["Imports_Revenue"] / 1_000_000
 imports["Approx_Duty_Rate"] = (imports["Imports_Revenue"] / imports["Imports_Value"]) * 100
@@ -327,6 +342,14 @@ import_partner["Imports_Billion"] = import_partner["Imports_Value"] / 1_000_000
 import_partner["Revenue_Billion"] = import_partner["Imports_Revenue"] / 1_000_000
 
 export_partner["Exports_Billion"] = export_partner["Exports_Value"] / 1_000_000
+# Remove total rows so dashboard shows real products/countries/routes
+imports = remove_total_rows(imports, ["Description"])
+exports = remove_total_rows(exports, ["Description"])
+countries = remove_total_rows(countries, ["Partner Countries"])
+customs = remove_total_rows(customs, ["Customs"])
+
+import_partner = remove_total_rows(import_partner, ["Description", "Partner Countries"])
+export_partner = remove_total_rows(export_partner, ["Description", "Partner Countries"])
 
 top_imports = imports.sort_values("Imports_Value", ascending=False).head(10)
 top_exports = exports.sort_values("Exports_Value", ascending=False).head(10)
