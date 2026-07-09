@@ -151,6 +151,7 @@ uploaded_file = st.sidebar.file_uploader(
 )
 
 default_file_path = Path(__file__).parent / "customs.xlsx"
+developer_photo_path = Path(__file__).parent / "utsav.png"
 
 if uploaded_file is not None:
     file_source = uploaded_file
@@ -1212,6 +1213,53 @@ with about_tab:
         "TradePulse Nepal Dashboard. Based on monthly foreign trade statistics published by the Department of Customs, Government of Nepal.",
         language="text"
     )
+
+    st.markdown("---")
+
+    st.subheader("Developer")
+
+    dev_col1, dev_col2 = st.columns([0.32, 0.68])
+
+    with dev_col1:
+        if developer_photo_path.exists():
+            st.image(str(developer_photo_path), caption="Utsav Phuyal", use_container_width=True)
+        else:
+            st.info("Upload your photo as utsav.png in the same folder as app.py to show it here.")
+
+    with dev_col2:
+        st.markdown(
+            """
+            <div class="section-card">
+                <h3>Utsav Phuyal</h3>
+                <p><b>Developer & Researcher, TradePulse Nepal</b></p>
+
+                <p>
+                I am a business and economics graduate student interested in data analytics,
+                economic research, trade intelligence, financial stability, and AI-powered
+                public-data tools.
+                </p>
+
+                <p>
+                I built TradePulse Nepal to make Nepal's Department of Customs data easier
+                to understand through dashboards, product-level analysis, country intelligence,
+                opportunity signals, and automated trade briefs.
+                </p>
+
+                <p>
+                The goal is to turn raw public data into clear market insights, business signals,
+                policy risks, and report-ready analysis.
+                </p>
+
+                <p>
+                <b>Contact</b><br>
+                Email: utsavkphuyal@gmail.com<br>
+                LinkedIn: linkedin.com/in/utsav-phuyal<br>
+                GitHub: github.com/utsavhatescoding
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 # -----------------------------
 # Insights tab
 # -----------------------------
