@@ -1,12 +1,21 @@
 from io import BytesIO
+from pathlib import Path
+
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle
+)
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+from reportlab.lib.units import inch
 
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from pathlib import Path
 
 st.set_page_config(
     page_title="Market Movement AI Dashboard",
@@ -272,36 +281,271 @@ def horizontal_bar(df, x, y, title, x_label, y_label, height=470):
 
     return fig
 
-def create_pdf_report(brief_text):
+def create_pdf_report(
+    current_col,
+    imports_total,
+    exports_total,
+    deficit_total,
+    total_trade,
+    import_export_ratio,
+    top_import_product,
+    top_import_value,
+    top_export_product,
+    top_export_value,
+    top_import_country,
+    top_export_country,
+    top_customs_office,
+    top_customs_value
+):
     buffer = BytesIO()
 
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=40,
-        leftMargin=40,
-        topMargin=40,
-        bottomMargin=40
+        rightMargin=42,
+        leftMargin=42,
+        topMargin=42,
+        bottomMargin=42
     )
 
     styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "TradePulseTitle",
+        parent=styles["Title"],
+        fontSize=24,
+        leading=30,
+        textColor=colors.HexColor("#0F172A"),
+        spaceAfter=12
+    )
+
+    subtitle_style = ParagraphStyle(
+        "TradePulseSubtitle",
+        parent=styles["BodyText"],
+        fontSize=11,
+        leading=16,
+        textColor=colors.HexColor("#475569"),
+        spaceAfter=18
+    )
+
+    section_style = ParagraphStyle(
+        "TradePulseSection",
+        parent=styles["Heading2"],
+        fontSize=15,
+        leading=20,
+        textColor=colors.HexColor("#102A43"),
+        spaceBefore=14,
+        spaceAfter=8
+    )
+
+    body_style = ParagraphStyle(
+        "TradePulseBody",
+        parent=styles["BodyText"],
+        fontSize=10.5,
+        leading=16,
+        textColor=colors.HexColor("#1E293B"),
+        spaceAfter=8
+    )
+
+    small_style = ParagraphStyle(
+        "TradePulseSmall",
+        parent=styles["BodyText"],
+        fontSize=8.5,
+        leading=12,
+        textColor=colors.HexColor("#64748B")
+    )
+
     story = []
 
-    title = Paragraph("TradePulse Nepal — Monthly Trade Brief", styles["Title"])
-    story.append(title)
-    story.append(Spacer(1, 16))
+    story.append(Paragraph("TRADEPULSE NEPAL", small_style))
+    story.append(Paragraph("Monthly Trade Intelligence Brief", title_style))
 
-    for line in brief_text.split("\n"):
-        if line.strip() == "":
-            story.append(Spacer(1, 8))
-        else:
-            story.append(Paragraph(line, styles["BodyText"]))
-            story.append(Spacer(1, 6))
+    story.append(Paragraph(
+        """
+        A data-driven summary of Nepal's foreign trade movement based on Department of Customs data.
+        This brief converts customs statistics into market signals, business opportunities, policy risks,
+        and report-ready insights.
+        """,
+        subtitle_style
+    ))
+
+    meta_data = [
+        ["Current period", current_col],
+        ["Source", "Department of Customs, Government of Nepal"],
+        ["Unit", "Rs. billion"],
+        ["Conversion", "Source values in Rs. thousands divided by 1,000,000"]
+    ]
+
+    meta_table = Table(meta_data, colWidths=[1.55 * inch, 4.65 * inch])
+    meta_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
+        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#0F172A")),
+        ("TEXTCOLOR", (1, 0), (1, -1), colors.HexColor("#334155")),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+        ("PADDING", (0, 0), (-1, -1), 8),
+    ]))
+
+    story.append(meta_table)
+    story.append(Spacer(1, 18))
+
+    story.append(Paragraph("1. Market Snapshot", section_style))
+
+    kpi_data = [
+        ["Indicator", "Value"],
+        ["Total Imports", f"Rs {imports_total:,.2f} billion"],
+        ["Total Exports", f"Rs {exports_total:,.2f} billion"],
+        ["Trade Deficit", f"Rs {deficit_total:,.2f} billion"],
+        ["Total Foreign Trade", f"Rs {total_trade:,.2f} billion"],
+        ["Import / Export Ratio", f"{import_export_ratio:,.1f}x"]
+    ]
+
+    kpi_table = Table(kpi_data, colWidths=[2.6 * inch, 3.6 * inch])
+    kpi_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("BACKGROUND", (0, 1), (-1, -1), colors.white),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+        ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#1E293B")),
+        ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+        ("PADDING", (0, 0), (-1, -1), 8),
+    ]))
+
+    story.append(kpi_table)
+    story.append(Spacer(1, 12))
+
+    story.append(Paragraph(
+        f"""
+        Nepal recorded total imports of <b>Rs {imports_total:,.2f} billion</b> and exports of
+        <b>Rs {exports_total:,.2f} billion</b>. Imports were around
+        <b>{import_export_ratio:,.1f} times</b> larger than exports, indicating continued import dependence.
+        """,
+        body_style
+    ))
+
+    story.append(Paragraph("2. Product Movement", section_style))
+
+    product_data = [
+        ["Signal", "Product", "Value"],
+        ["Top import product", str(top_import_product), f"Rs {top_import_value:,.2f} billion"],
+        ["Top export product", str(top_export_product), f"Rs {top_export_value:,.2f} billion"]
+    ]
+
+    product_table = Table(product_data, colWidths=[1.65 * inch, 3.15 * inch, 1.4 * inch])
+    product_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#102A43")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+        ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9.3),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+        ("PADDING", (0, 0), (-1, -1), 7),
+    ]))
+
+    story.append(product_table)
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph(
+        f"""
+        The leading imported product was <b>{top_import_product}</b>, while the leading exported product was
+        <b>{top_export_product}</b>. These products can be used as starting points for product-level
+        research, market mapping, sourcing analysis, and export-diversification discussion.
+        """,
+        body_style
+    ))
+
+    story.append(Paragraph("3. Country and Customs Route Movement", section_style))
+
+    country_route_data = [
+        ["Signal", "Result"],
+        ["Largest import partner", str(top_import_country)],
+        ["Largest export destination", str(top_export_country)],
+        ["Largest customs route by import value", str(top_customs_office)],
+        ["Import value handled by top route", f"Rs {top_customs_value:,.2f} billion"]
+    ]
+
+    country_route_table = Table(country_route_data, colWidths=[2.4 * inch, 3.8 * inch])
+    country_route_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+        ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+        ("PADDING", (0, 0), (-1, -1), 8),
+    ]))
+
+    story.append(country_route_table)
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph(
+        f"""
+        The largest import partner was <b>{top_import_country}</b>, while the largest export destination was
+        <b>{top_export_country}</b>. The most important customs office by import value was
+        <b>{top_customs_office}</b>. These indicators help identify country dependence and logistics concentration.
+        """,
+        body_style
+    ))
+
+    story.append(Paragraph("4. Business Opportunity Signals", section_style))
+
+    opportunity_points = [
+        f"High-import products such as {top_import_product} may deserve deeper import-substitution research.",
+        "Large import values can indicate existing domestic demand, but profitability must be checked separately.",
+        f"Export products such as {top_export_product} can be studied for export expansion and destination diversification.",
+        f"Major supplier countries such as {top_import_country} may reveal sourcing, distribution, and trade-finance opportunities."
+    ]
+
+    for point in opportunity_points:
+        story.append(Paragraph(f"• {point}", body_style))
+
+    story.append(Paragraph("5. Policy Risk Signals", section_style))
+
+    risk_points = [
+        f"The trade deficit remains large at Rs {deficit_total:,.2f} billion.",
+        f"Imports are around {import_export_ratio:,.1f} times larger than exports.",
+        "Heavy dependence on major partner countries can create external vulnerability.",
+        f"Customs concentration through {top_customs_office} can create logistics and infrastructure pressure."
+    ]
+
+    for point in risk_points:
+        story.append(Paragraph(f"• {point}", body_style))
+
+    story.append(Spacer(1, 16))
+    disclaimer_table = Table(
+        [[Paragraph(
+            """
+            <b>Methodology note:</b> This report is generated from the uploaded Department of Customs workbook.
+            Monetary values are converted from Rs. thousands to Rs. billion. The opportunity and risk signals
+            are screening indicators for research and discussion, not investment advice.
+            """,
+            small_style
+        )]],
+        colWidths=[6.2 * inch]
+    )
+
+    disclaimer_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F1F5F9")),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+        ("PADDING", (0, 0), (-1, -1), 10),
+    ]))
+
+    story.append(disclaimer_table)
 
     doc.build(story)
-
     buffer.seek(0)
     return buffer
+
 
 def clean_hscode(series):
     return series.astype(str).str.replace(".0", "", regex=False)
@@ -1358,11 +1602,26 @@ The data shows Nepal's continued import dependence and a large trade deficit. Hi
         mime="text/plain"
     )
 
-    pdf_buffer = create_pdf_report(brief_text)
+    pdf_buffer = create_pdf_report(
+        current_col=current_col,
+        imports_total=imports_total,
+        exports_total=exports_total,
+        deficit_total=deficit_total,
+        total_trade=total_trade,
+        import_export_ratio=import_export_ratio,
+        top_import_product=top_import_product,
+        top_import_value=top_import_value,
+        top_export_product=top_export_product,
+        top_export_value=top_export_value,
+        top_import_country=top_import_country,
+        top_export_country=top_export_country,
+        top_customs_office=top_customs_office,
+        top_customs_value=top_customs_value
+    )
 
-st.download_button(
-    "Download trade brief as PDF",
-    data=pdf_buffer,
-    file_name="tradepulse_nepal_monthly_brief.pdf",
-    mime="application/pdf"
-)
+    st.download_button(
+        "Download trade brief as PDF",
+        data=pdf_buffer,
+        file_name="tradepulse_nepal_monthly_brief.pdf",
+        mime="application/pdf"
+    )
