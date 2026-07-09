@@ -183,10 +183,9 @@ I am interested in economics, data analytics, public data, trade intelligence, a
 
 Contact:
 
-```text
-Email: your-email@example.com
-LinkedIn: linkedin.com/in/your-profile
-GitHub: github.com/your-username
+Email: utsavkphuyal@gmail.com
+LinkedIn: linkedin.com/in/utsav-phuyal
+GitHub: github.com/utsavhatescoding
 ```
 
 ---
