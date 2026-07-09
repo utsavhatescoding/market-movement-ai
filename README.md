@@ -184,8 +184,7 @@ I am interested in economics, data analytics, public data, trade intelligence, a
 Contact:
 
 Email: utsavkphuyal@gmail.com
-LinkedIn: linkedin.com/in/utsav-phuyal
-GitHub: github.com/utsavhatescoding
+
 ```
 
 ---
