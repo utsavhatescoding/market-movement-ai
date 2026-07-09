@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from pathlib import Path
 
 st.set_page_config(
     page_title="Market Movement AI Dashboard",
@@ -144,8 +145,15 @@ uploaded_file = st.sidebar.file_uploader(
     type=["xlsx"]
 )
 
-default_file_path = "data/customs.xlsx"
-file_source = uploaded_file if uploaded_file is not None else default_file_path
+default_file_path = Path(__file__).parent / "customs.xlsx"
+
+if uploaded_file is not None:
+    file_source = uploaded_file
+elif default_file_path.exists():
+    file_source = default_file_path
+else:
+    st.warning("Please upload a customs Excel file from the sidebar to start the dashboard.")
+    st.stop()
 
 st.sidebar.markdown("---")
 st.sidebar.info("Source values are in Rs. thousands. Dashboard values are shown in Rs. billion.")
