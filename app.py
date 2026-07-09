@@ -1,3 +1,8 @@
+from io import BytesIO
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -266,6 +271,36 @@ def horizontal_bar(df, x, y, title, x_label, y_label, height=470):
 
     return fig
 
+def create_pdf_report(brief_text):
+    buffer = BytesIO()
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=40,
+        leftMargin=40,
+        topMargin=40,
+        bottomMargin=40
+    )
+
+    styles = getSampleStyleSheet()
+    story = []
+
+    title = Paragraph("TradePulse Nepal — Monthly Trade Brief", styles["Title"])
+    story.append(title)
+    story.append(Spacer(1, 16))
+
+    for line in brief_text.split("\n"):
+        if line.strip() == "":
+            story.append(Spacer(1, 8))
+        else:
+            story.append(Paragraph(line, styles["BodyText"]))
+            story.append(Spacer(1, 6))
+
+    doc.build(story)
+
+    buffer.seek(0)
+    return buffer
 
 def clean_hscode(series):
     return series.astype(str).str.replace(".0", "", regex=False)
@@ -414,8 +449,8 @@ st.caption(f"Current period used: {current_col}. Source values are in Rs. thousa
 # Tabs
 # -----------------------------
 
-overview_tab, product_tab, opportunity_tab, country_tab, route_tab, insight_tab = st.tabs(
-    ["Overview", "Products", "Opportunity Finder", "Countries", "Customs Routes", "Insights"]
+overview_tab, product_tab, opportunity_tab, country_tab, route_tab, about_tab, insight_tab = st.tabs(
+    ["Overview", "Products", "Opportunity Finder", "Countries", "Customs Routes", "About / Methodology", "Insights"]
 )
 
 # -----------------------------
@@ -1060,6 +1095,124 @@ with route_tab:
     )
 
 # -----------------------------
+# About / Methodology tab
+# -----------------------------
+
+with about_tab:
+    st.subheader("About TradePulse Nepal")
+
+    st.markdown(
+        """
+        <div class="section-card">
+            <h3>What is TradePulse Nepal?</h3>
+            <p>
+            TradePulse Nepal is a data dashboard that converts Nepal's Department of Customs trade data
+            into simple market intelligence. It helps users understand imports, exports, trade deficit,
+            product movement, country dependence, customs route concentration, business opportunities,
+            and policy risks.
+            </p>
+            <p>
+            The goal is to make public trade data easier to understand for students, researchers,
+            journalists, businesses, policymakers, and analysts.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    m1, m2 = st.columns(2)
+
+    with m1:
+        st.markdown(
+            """
+            <div class="section-card">
+                <h3>Data Source</h3>
+                <p><b>Primary source:</b> Department of Customs, Government of Nepal.</p>
+                <p><b>Dataset type:</b> Monthly foreign trade statistics.</p>
+                <p><b>Coverage:</b> Imports, exports, partner countries, commodities, HS codes, customs offices, quantity, value, and revenue.</p>
+                <p><b>Current dashboard period:</b> Based on the uploaded customs Excel workbook.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with m2:
+        st.markdown(
+            """
+            <div class="section-card">
+                <h3>Units and Conversion</h3>
+                <p>The original customs workbook reports many monetary values in <b>Rs. thousands</b>.</p>
+                <p>This dashboard converts values into <b>Rs. billion</b> for easier reading.</p>
+                <p><b>Formula used:</b></p>
+                <p>Rs. billion = Source value ÷ 1,000,000</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    st.markdown("### Methodology")
+
+    st.markdown(
+        """
+        <div class="section-card">
+            <h3>How the Dashboard Works</h3>
+            <ol>
+                <li>The user uploads a Department of Customs Excel workbook.</li>
+                <li>The dashboard reads trade, product, country, partner, export, import, and customs-office sheets.</li>
+                <li>Values are cleaned and converted from Rs. thousands to Rs. billion.</li>
+                <li>Total rows are removed so rankings show actual products, countries, and customs routes.</li>
+                <li>The dashboard calculates key indicators such as total imports, exports, trade deficit, import-export ratio, country shares, product rankings, and route concentration.</li>
+                <li>The Opportunity Finder ranks products using import value, customs revenue, and approximate duty signal.</li>
+                <li>The Insights tab generates a simple trade brief using calculated dashboard numbers.</li>
+            </ol>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown("### Opportunity Finder Score")
+
+    st.markdown(
+        """
+        <div class="opportunity-card">
+            <p><b>The Opportunity Finder is a screening tool, not an investment recommendation.</b></p>
+            <p>It ranks imported products using three signals:</p>
+            <ul>
+                <li><b>Market Size Score:</b> based on import value.</li>
+                <li><b>Revenue Signal Score:</b> based on customs revenue.</li>
+                <li><b>Duty Signal Score:</b> based on approximate duty/revenue rate.</li>
+            </ul>
+            <p>The score helps identify products that may deserve deeper research for import-substitution,
+            sourcing, distribution, trade finance, or policy analysis.</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown("### Limitations")
+
+    st.markdown(
+        """
+        <div class="risk-card">
+            <ul>
+                <li>The dashboard depends on the structure and accuracy of the uploaded customs workbook.</li>
+                <li>The Opportunity Score does not prove profitability or feasibility.</li>
+                <li>Import-substitution potential requires additional data on domestic production, demand, costs, technology, and regulation.</li>
+                <li>AI-style insights are generated only from available dashboard numbers and should be verified before publication.</li>
+                <li>This dashboard is for research, business intelligence, and policy discussion — not financial or investment advice.</li>
+            </ul>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown("### Suggested Citation")
+
+    st.code(
+        "TradePulse Nepal Dashboard. Based on monthly foreign trade statistics published by the Department of Customs, Government of Nepal.",
+        language="text"
+    )
+# -----------------------------
 # Insights tab
 # -----------------------------
 
@@ -1156,3 +1309,12 @@ The data shows Nepal's continued import dependence and a large trade deficit. Hi
         file_name="monthly_trade_brief.txt",
         mime="text/plain"
     )
+
+    pdf_buffer = create_pdf_report(brief_text)
+
+st.download_button(
+    "Download trade brief as PDF",
+    data=pdf_buffer,
+    file_name="tradepulse_nepal_monthly_brief.pdf",
+    mime="application/pdf"
+)
