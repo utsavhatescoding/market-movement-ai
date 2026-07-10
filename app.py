@@ -366,6 +366,207 @@ def extract_trade_snapshot_from_file(file, file_name):
     }
 
 
+
+def read_product_table(file, sheet_name, value_col):
+    """Read commodity import/export table from a customs workbook."""
+    df = pd.read_excel(file, sheet_name=sheet_name, header=2)
+    df.columns = df.columns.astype(str).str.strip()
+
+    required_cols = ["HSCode", "Description", value_col]
+    for col in required_cols:
+        if col not in df.columns:
+            raise ValueError(f"{col} not found in {sheet_name}")
+
+    df = df.copy()
+
+    df["HSCode"] = (
+        df["HSCode"]
+        .astype(str)
+        .str.replace(".0", "", regex=False)
+        .str.strip()
+        .str.zfill(8)
+    )
+
+    df["Description"] = df["Description"].astype(str).str.strip()
+
+    df = df[
+        ~df["Description"]
+        .str.lower()
+        .isin(["total", "grand total", "nan"])
+    ]
+
+    df[value_col] = pd.to_numeric(df[value_col], errors="coerce").fillna(0)
+    df["Value_Billion"] = df[value_col] / 1_000_000
+
+    df = (
+        df.groupby(["HSCode", "Description"], as_index=False)["Value_Billion"]
+        .sum()
+    )
+
+    return df
+
+
+def build_product_movement_table(trend_files, sheet_name, value_col):
+    """Build latest monthly product movement from cumulative monthly customs files."""
+    monthly_tables = []
+    periods = []
+
+    for file_path in sorted(trend_files):
+        period = file_path.stem.replace("_", " ")
+        periods.append(period)
+
+        temp = read_product_table(file_path, sheet_name, value_col)
+        temp["Period"] = period
+        monthly_tables.append(temp)
+
+    if len(monthly_tables) < 2:
+        raise ValueError("At least two files are required for product movement analysis.")
+
+    all_products = pd.concat(monthly_tables, ignore_index=True)
+
+    cumulative_wide = all_products.pivot_table(
+        index=["HSCode", "Description"],
+        columns="Period",
+        values="Value_Billion",
+        aggfunc="sum",
+        fill_value=0
+    )
+
+    cumulative_wide = cumulative_wide[periods]
+
+    # Customs files are cumulative, so monthly values are differences between cumulative files.
+    monthly_wide = cumulative_wide.diff(axis=1)
+    monthly_wide[periods[0]] = cumulative_wide[periods[0]]
+
+    latest_period = periods[-1]
+    previous_period = periods[-2]
+
+    result = cumulative_wide.reset_index()[["HSCode", "Description"]].copy()
+    result["Latest_Cumulative_Billion"] = cumulative_wide[latest_period].values
+    result["Previous_Month_Billion"] = monthly_wide[previous_period].values
+    result["Latest_Month_Billion"] = monthly_wide[latest_period].values
+    result["Change_Billion"] = result["Latest_Month_Billion"] - result["Previous_Month_Billion"]
+
+    result["Growth_Percent"] = result.apply(
+        lambda row: (row["Change_Billion"] / row["Previous_Month_Billion"] * 100)
+        if row["Previous_Month_Billion"] != 0 else None,
+        axis=1
+    )
+
+    result["Latest_Period"] = latest_period
+    result["Previous_Period"] = previous_period
+
+    return result
+
+
+def build_trend_summary_for_report(monthly_data_path):
+    """Create a compact trend summary for the app and PDF report from static monthly_data files."""
+    try:
+        monthly_data_path = Path(monthly_data_path)
+        if not monthly_data_path.exists():
+            return None
+
+        trend_files = sorted(monthly_data_path.glob("*.xlsx"))
+        if len(trend_files) < 2:
+            return None
+
+        trend_rows = []
+        for file_path in trend_files:
+            try:
+                trend_rows.append(extract_trade_snapshot_from_file(file_path, file_path.name))
+            except Exception:
+                continue
+
+        if len(trend_rows) < 2:
+            return None
+
+        trend_df = pd.DataFrame(trend_rows)
+        trend_df["Order"] = range(1, len(trend_df) + 1)
+
+        trend_df["Monthly_Imports_Billion"] = trend_df["Imports_Billion"].diff()
+        trend_df["Monthly_Exports_Billion"] = trend_df["Exports_Billion"].diff()
+        trend_df["Monthly_Deficit_Billion"] = trend_df["Trade_Deficit_Billion"].diff()
+        trend_df["Monthly_Total_Trade_Billion"] = trend_df["Total_Trade_Billion"].diff()
+
+        trend_df.loc[trend_df.index[0], "Monthly_Imports_Billion"] = trend_df.loc[trend_df.index[0], "Imports_Billion"]
+        trend_df.loc[trend_df.index[0], "Monthly_Exports_Billion"] = trend_df.loc[trend_df.index[0], "Exports_Billion"]
+        trend_df.loc[trend_df.index[0], "Monthly_Deficit_Billion"] = trend_df.loc[trend_df.index[0], "Trade_Deficit_Billion"]
+        trend_df.loc[trend_df.index[0], "Monthly_Total_Trade_Billion"] = trend_df.loc[trend_df.index[0], "Total_Trade_Billion"]
+
+        latest = trend_df.iloc[-1]
+        previous = trend_df.iloc[-2]
+
+        import_change = latest["Imports_Billion"] - previous["Imports_Billion"]
+        export_change = latest["Exports_Billion"] - previous["Exports_Billion"]
+        deficit_change = latest["Trade_Deficit_Billion"] - previous["Trade_Deficit_Billion"]
+
+        if import_change > export_change:
+            movement_note = "Imports increased more than exports in the latest period, which may widen trade-deficit pressure."
+        elif export_change > import_change:
+            movement_note = "Exports increased more than imports in the latest period, which may slightly ease trade-deficit pressure."
+        else:
+            movement_note = "Imports and exports moved by a similar amount in the latest period."
+
+        summary = {
+            "files_used": len(trend_df),
+            "latest_period": latest["Period"],
+            "previous_period": previous["Period"],
+            "latest_imports": latest["Imports_Billion"],
+            "latest_exports": latest["Exports_Billion"],
+            "latest_deficit": latest["Trade_Deficit_Billion"],
+            "latest_total_trade": latest["Total_Trade_Billion"],
+            "import_change": import_change,
+            "export_change": export_change,
+            "deficit_change": deficit_change,
+            "movement_note": movement_note,
+            "top_rising_import": None,
+            "top_rising_import_change": None,
+            "top_rising_export": None,
+            "top_rising_export_change": None,
+            "top_falling_import": None,
+            "top_falling_import_change": None,
+            "top_falling_export": None,
+            "top_falling_export_change": None,
+        }
+
+        try:
+            import_product_movement = build_product_movement_table(
+                trend_files=trend_files,
+                sheet_name="5_Imports_By_Commodity",
+                value_col="Imports_Value"
+            )
+            export_product_movement = build_product_movement_table(
+                trend_files=trend_files,
+                sheet_name="7_Exports_By_Commodity",
+                value_col="Exports_Value"
+            )
+
+            import_filtered = import_product_movement[import_product_movement["Latest_Month_Billion"] >= 0.1].copy()
+            export_filtered = export_product_movement[export_product_movement["Latest_Month_Billion"] >= 0.1].copy()
+
+            if len(import_filtered) > 0:
+                top_rising_import = import_filtered.sort_values("Change_Billion", ascending=False).iloc[0]
+                top_falling_import = import_filtered.sort_values("Change_Billion", ascending=True).iloc[0]
+                summary["top_rising_import"] = top_rising_import["Description"]
+                summary["top_rising_import_change"] = top_rising_import["Change_Billion"]
+                summary["top_falling_import"] = top_falling_import["Description"]
+                summary["top_falling_import_change"] = top_falling_import["Change_Billion"]
+
+            if len(export_filtered) > 0:
+                top_rising_export = export_filtered.sort_values("Change_Billion", ascending=False).iloc[0]
+                top_falling_export = export_filtered.sort_values("Change_Billion", ascending=True).iloc[0]
+                summary["top_rising_export"] = top_rising_export["Description"]
+                summary["top_rising_export_change"] = top_rising_export["Change_Billion"]
+                summary["top_falling_export"] = top_falling_export["Description"]
+                summary["top_falling_export_change"] = top_falling_export["Change_Billion"]
+        except Exception:
+            pass
+
+        return summary
+
+    except Exception:
+        return None
+
 def short_text(text, max_len=58):
     text = str(text)
     if len(text) <= max_len:
@@ -434,7 +635,8 @@ def create_pdf_report(
     top_import_country,
     top_export_country,
     top_customs_office,
-    top_customs_value
+    top_customs_value,
+    trend_summary=None
 ):
     buffer = BytesIO()
 
@@ -636,7 +838,68 @@ def create_pdf_report(
         body_style
     ))
 
-    story.append(Paragraph("4. Business Opportunity Signals", section_style))
+
+    if trend_summary:
+        story.append(Paragraph("4. Multi-Month Trend Movement", section_style))
+
+        trend_data = [
+            ["Signal", "Result"],
+            ["Files compared", f"{trend_summary.get('files_used', 0)} monthly files"],
+            ["Latest period", str(trend_summary.get('latest_period', ''))],
+            ["Latest cumulative imports", f"Rs {trend_summary.get('latest_imports', 0):,.2f} billion"],
+            ["Latest cumulative exports", f"Rs {trend_summary.get('latest_exports', 0):,.2f} billion"],
+            ["Latest trade deficit", f"Rs {trend_summary.get('latest_deficit', 0):,.2f} billion"],
+            ["Latest import change", f"Rs {trend_summary.get('import_change', 0):,.2f} billion"],
+            ["Latest export change", f"Rs {trend_summary.get('export_change', 0):,.2f} billion"],
+            ["Deficit change", f"Rs {trend_summary.get('deficit_change', 0):,.2f} billion"],
+        ]
+
+        trend_table = Table(trend_data, colWidths=[2.5 * inch, 3.7 * inch])
+        trend_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#102A43")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+            ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9.3),
+            ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+            ("PADDING", (0, 0), (-1, -1), 7),
+        ]))
+
+        story.append(trend_table)
+        story.append(Spacer(1, 10))
+        story.append(Paragraph(str(trend_summary.get("movement_note", "")), body_style))
+
+        if trend_summary.get("top_rising_import") or trend_summary.get("top_rising_export"):
+            product_signal_rows = [["Product signal", "Latest movement"]]
+            if trend_summary.get("top_rising_import"):
+                product_signal_rows.append([
+                    "Top rising import",
+                    f"{trend_summary.get('top_rising_import')} (+Rs {trend_summary.get('top_rising_import_change', 0):,.2f} billion)"
+                ])
+            if trend_summary.get("top_rising_export"):
+                product_signal_rows.append([
+                    "Top rising export",
+                    f"{trend_summary.get('top_rising_export')} (+Rs {trend_summary.get('top_rising_export_change', 0):,.2f} billion)"
+                ])
+
+            product_signal_table = Table(product_signal_rows, colWidths=[2.0 * inch, 4.2 * inch])
+            product_signal_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+                ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9.2),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+                ("PADDING", (0, 0), (-1, -1), 7),
+            ]))
+            story.append(product_signal_table)
+            story.append(Spacer(1, 10))
+
+    story.append(Paragraph("5. Business Opportunity Signals", section_style))
 
     opportunity_points = [
         f"High-import products such as {top_import_product} may deserve deeper import-substitution research.",
@@ -648,7 +911,7 @@ def create_pdf_report(
     for point in opportunity_points:
         story.append(Paragraph(f"• {point}", body_style))
 
-    story.append(Paragraph("5. Policy Risk Signals", section_style))
+    story.append(Paragraph("6. Policy Risk Signals", section_style))
 
     risk_points = [
         f"The trade deficit remains large at Rs {deficit_total:,.2f} billion.",
@@ -1697,6 +1960,32 @@ with trend_tab:
                     unsafe_allow_html=True
                 )
 
+
+                st.markdown("### Trend Insight Summary")
+
+                st.markdown(
+                    f"""
+                    <div class="insight-card">
+                        <h3>What changed in the latest period?</h3>
+                        <p>{movement_note}</p>
+                        <p>
+                        Across <b>{len(trend_df)}</b> monthly customs files, the latest period is
+                        <b>{latest['Period']}</b>. Cumulative imports reached
+                        <b>Rs {latest['Imports_Billion']:,.2f} billion</b>, exports reached
+                        <b>Rs {latest['Exports_Billion']:,.2f} billion</b>, and the trade deficit stood at
+                        <b>Rs {latest['Trade_Deficit_Billion']:,.2f} billion</b>.
+                        </p>
+                        <p>
+                        Compared with the previous cumulative file, imports changed by
+                        <b>Rs {import_change:,.2f} billion</b>, exports changed by
+                        <b>Rs {export_change:,.2f} billion</b>, and the trade deficit changed by
+                        <b>Rs {deficit_change:,.2f} billion</b>.
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
                 st.markdown("### Trend Data Table")
 
                 show_cols = [
@@ -1734,6 +2023,315 @@ with trend_tab:
                     file_name="tradepulse_multi_month_trends.csv",
                     mime="text/csv"
                 )
+
+
+                # -----------------------------
+                # Product Movement Over Time
+                # -----------------------------
+
+                st.markdown("---")
+                st.markdown("### Product Movement Over Time")
+
+                st.markdown(
+                    """
+                    <div class="insight-card">
+                        <b>How this works:</b> The monthly customs files are cumulative, so latest monthly
+                        product movement is estimated by subtracting the previous cumulative file from the latest cumulative file.
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                try:
+                    import_product_movement = build_product_movement_table(
+                        trend_files=trend_files,
+                        sheet_name="5_Imports_By_Commodity",
+                        value_col="Imports_Value"
+                    )
+
+                    export_product_movement = build_product_movement_table(
+                        trend_files=trend_files,
+                        sheet_name="7_Exports_By_Commodity",
+                        value_col="Exports_Value"
+                    )
+
+                    min_latest_value = st.number_input(
+                        "Minimum latest monthly product value, Rs billion",
+                        min_value=0.0,
+                        value=0.1,
+                        step=0.1,
+                        key="product_movement_min_value"
+                    )
+
+                    top_product_n = st.slider(
+                        "Number of products to show",
+                        min_value=5,
+                        max_value=30,
+                        value=10,
+                        step=5,
+                        key="product_movement_top_n"
+                    )
+
+                    filtered_import_movement = import_product_movement[
+                        import_product_movement["Latest_Month_Billion"] >= min_latest_value
+                    ].copy()
+
+                    filtered_export_movement = export_product_movement[
+                        export_product_movement["Latest_Month_Billion"] >= min_latest_value
+                    ].copy()
+
+                    rising_imports = (
+                        filtered_import_movement
+                        .sort_values("Change_Billion", ascending=False)
+                        .head(top_product_n)
+                    )
+
+                    falling_imports = (
+                        filtered_import_movement
+                        .sort_values("Change_Billion", ascending=True)
+                        .head(top_product_n)
+                    )
+
+                    rising_exports = (
+                        filtered_export_movement
+                        .sort_values("Change_Billion", ascending=False)
+                        .head(top_product_n)
+                    )
+
+                    falling_exports = (
+                        filtered_export_movement
+                        .sort_values("Change_Billion", ascending=True)
+                        .head(top_product_n)
+                    )
+
+                    st.markdown("#### Top Product Movement Signals")
+
+                    m1, m2, m3, m4 = st.columns(4)
+
+                    with m1:
+                        if len(rising_imports) > 0:
+                            kpi_card(
+                                "Top Rising Import",
+                                short_text(rising_imports.iloc[0]["Description"], 22),
+                                f"+Rs {rising_imports.iloc[0]['Change_Billion']:,.2f}B"
+                            )
+
+                    with m2:
+                        if len(falling_imports) > 0:
+                            kpi_card(
+                                "Top Falling Import",
+                                short_text(falling_imports.iloc[0]["Description"], 22),
+                                f"Rs {falling_imports.iloc[0]['Change_Billion']:,.2f}B"
+                            )
+
+                    with m3:
+                        if len(rising_exports) > 0:
+                            kpi_card(
+                                "Top Rising Export",
+                                short_text(rising_exports.iloc[0]["Description"], 22),
+                                f"+Rs {rising_exports.iloc[0]['Change_Billion']:,.2f}B"
+                            )
+
+                    with m4:
+                        if len(falling_exports) > 0:
+                            kpi_card(
+                                "Top Falling Export",
+                                short_text(falling_exports.iloc[0]["Description"], 22),
+                                f"Rs {falling_exports.iloc[0]['Change_Billion']:,.2f}B"
+                            )
+
+                    st.markdown("### Rising and Falling Imports")
+
+                    im1, im2 = st.columns(2)
+
+                    with im1:
+                        fig_rising_imports = horizontal_bar(
+                            rising_imports,
+                            "Change_Billion",
+                            "Description",
+                            "Top Rising Imports",
+                            "Change vs Previous Month, Rs Billion",
+                            "Product",
+                            height=520
+                        )
+                        st.plotly_chart(fig_rising_imports, use_container_width=True)
+
+                    with im2:
+                        fig_falling_imports = horizontal_bar(
+                            falling_imports,
+                            "Change_Billion",
+                            "Description",
+                            "Top Falling Imports",
+                            "Change vs Previous Month, Rs Billion",
+                            "Product",
+                            height=520
+                        )
+                        st.plotly_chart(fig_falling_imports, use_container_width=True)
+
+                    st.markdown("### Rising and Falling Exports")
+
+                    ex1, ex2 = st.columns(2)
+
+                    with ex1:
+                        fig_rising_exports = horizontal_bar(
+                            rising_exports,
+                            "Change_Billion",
+                            "Description",
+                            "Top Rising Exports",
+                            "Change vs Previous Month, Rs Billion",
+                            "Product",
+                            height=520
+                        )
+                        st.plotly_chart(fig_rising_exports, use_container_width=True)
+
+                    with ex2:
+                        fig_falling_exports = horizontal_bar(
+                            falling_exports,
+                            "Change_Billion",
+                            "Description",
+                            "Top Falling Exports",
+                            "Change vs Previous Month, Rs Billion",
+                            "Product",
+                            height=520
+                        )
+                        st.plotly_chart(fig_falling_exports, use_container_width=True)
+
+                    st.markdown("### Product Movement Tables")
+
+                    movement_cols = [
+                        "HSCode",
+                        "Description",
+                        "Previous_Month_Billion",
+                        "Latest_Month_Billion",
+                        "Change_Billion",
+                        "Growth_Percent",
+                        "Latest_Cumulative_Billion"
+                    ]
+
+                    table1, table2 = st.columns(2)
+
+                    with table1:
+                        st.markdown("#### Import Movement Table")
+                        st.dataframe(
+                            rising_imports[movement_cols].style.format({
+                                "Previous_Month_Billion": "{:,.2f}",
+                                "Latest_Month_Billion": "{:,.2f}",
+                                "Change_Billion": "{:,.2f}",
+                                "Growth_Percent": "{:,.1f}",
+                                "Latest_Cumulative_Billion": "{:,.2f}"
+                            }),
+                            use_container_width=True
+                        )
+
+                        st.download_button(
+                            "Download import product movement",
+                            data=import_product_movement.to_csv(index=False).encode("utf-8"),
+                            file_name="tradepulse_import_product_movement.csv",
+                            mime="text/csv"
+                        )
+
+                    with table2:
+                        st.markdown("#### Export Movement Table")
+                        st.dataframe(
+                            rising_exports[movement_cols].style.format({
+                                "Previous_Month_Billion": "{:,.2f}",
+                                "Latest_Month_Billion": "{:,.2f}",
+                                "Change_Billion": "{:,.2f}",
+                                "Growth_Percent": "{:,.1f}",
+                                "Latest_Cumulative_Billion": "{:,.2f}"
+                            }),
+                            use_container_width=True
+                        )
+
+                        st.download_button(
+                            "Download export product movement",
+                            data=export_product_movement.to_csv(index=False).encode("utf-8"),
+                            file_name="tradepulse_export_product_movement.csv",
+                            mime="text/csv"
+                        )
+
+                    st.markdown("### Product Movement Interpretation")
+
+                    if len(rising_imports) > 0 and len(rising_exports) > 0:
+                        top_rising_import_name = rising_imports.iloc[0]["Description"]
+                        top_rising_import_change = rising_imports.iloc[0]["Change_Billion"]
+                        top_rising_export_name = rising_exports.iloc[0]["Description"]
+                        top_rising_export_change = rising_exports.iloc[0]["Change_Billion"]
+
+                        st.markdown(
+                            f"""
+                            <div class="insight-card">
+                                <p>
+                                The strongest import increase in the latest month came from
+                                <b>{top_rising_import_name}</b>, rising by around
+                                <b>Rs {top_rising_import_change:,.2f} billion</b> compared with the previous monthly movement.
+                                </p>
+                                <p>
+                                The strongest export increase came from
+                                <b>{top_rising_export_name}</b>, rising by around
+                                <b>Rs {top_rising_export_change:,.2f} billion</b>.
+                                </p>
+                                <p>
+                                These movements can be used to identify emerging demand, trade shocks,
+                                export momentum, import-substitution candidates, or products that deserve deeper investigation.
+                                </p>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+
+                    st.markdown("### Combined Trend Analyst Summary")
+
+                    if len(rising_imports) > 0 and len(rising_exports) > 0:
+                        top_rising_import_name = rising_imports.iloc[0]["Description"]
+                        top_rising_import_change = rising_imports.iloc[0]["Change_Billion"]
+                        top_rising_export_name = rising_exports.iloc[0]["Description"]
+                        top_rising_export_change = rising_exports.iloc[0]["Change_Billion"]
+
+                        if len(falling_imports) > 0:
+                            top_falling_import_name = falling_imports.iloc[0]["Description"]
+                            top_falling_import_change = falling_imports.iloc[0]["Change_Billion"]
+                        else:
+                            top_falling_import_name = "Not available"
+                            top_falling_import_change = 0
+
+                        if len(falling_exports) > 0:
+                            top_falling_export_name = falling_exports.iloc[0]["Description"]
+                            top_falling_export_change = falling_exports.iloc[0]["Change_Billion"]
+                        else:
+                            top_falling_export_name = "Not available"
+                            top_falling_export_change = 0
+
+                        st.markdown(
+                            f"""
+                            <div class="opportunity-card">
+                                <h3>TradePulse Trend Read</h3>
+                                <p>
+                                The latest monthly movement shows where Nepal's trade flow is changing most sharply.
+                                The strongest import rise came from <b>{top_rising_import_name}</b>
+                                with a change of <b>Rs {top_rising_import_change:,.2f} billion</b>.
+                                The strongest export rise came from <b>{top_rising_export_name}</b>
+                                with a change of <b>Rs {top_rising_export_change:,.2f} billion</b>.
+                                </p>
+                                <p>
+                                On the downside, the largest import slowdown was linked to
+                                <b>{top_falling_import_name}</b> with a change of
+                                <b>Rs {top_falling_import_change:,.2f} billion</b>, while the largest export slowdown was linked to
+                                <b>{top_falling_export_name}</b> with a change of
+                                <b>Rs {top_falling_export_change:,.2f} billion</b>.
+                                </p>
+                                <p>
+                                These product movements can help identify emerging demand, seasonal shocks,
+                                export momentum, import-substitution candidates, and possible media or research story angles.
+                                </p>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+                except Exception as e:
+                    st.warning(f"Could not generate product movement analysis: {e}")
 
 # -----------------------------
 # About / Methodology tab
@@ -1991,12 +2589,21 @@ The data shows Nepal's continued import dependence and a large trade deficit. Hi
         """
     )
 
-    st.download_button(
-        "Download trade brief",
-        data=brief_text.encode("utf-8"),
-        file_name="monthly_trade_brief.txt",
-        mime="text/plain"
+    st.markdown("---")
+    st.markdown("## Download Report")
+
+    st.markdown(
+        """
+        <div class="insight-card">
+            Download the current TradePulse Nepal brief as a simple text file or as a professionally formatted PDF report.
+            The PDF includes the market snapshot, product signals, country/customs movement, policy risks, business opportunities,
+            and multi-month trend summary where monthly data is available.
+        </div>
+        """,
+        unsafe_allow_html=True
     )
+
+    trend_summary_for_pdf = build_trend_summary_for_report(Path(__file__).parent / "monthly_data")
 
     pdf_buffer = create_pdf_report(
         current_col=current_col,
@@ -2012,12 +2619,28 @@ The data shows Nepal's continued import dependence and a large trade deficit. Hi
         top_import_country=top_import_country,
         top_export_country=top_export_country,
         top_customs_office=top_customs_office,
-        top_customs_value=top_customs_value
+        top_customs_value=top_customs_value,
+        trend_summary=trend_summary_for_pdf
     )
 
-    st.download_button(
-        "Download trade brief as PDF",
-        data=pdf_buffer,
-        file_name="tradepulse_nepal_monthly_brief.pdf",
-        mime="application/pdf"
-    )
+    d1, d2 = st.columns(2)
+
+    with d1:
+        st.download_button(
+            label="Download TXT Brief",
+            data=brief_text.encode("utf-8"),
+            file_name="tradepulse_nepal_monthly_brief.txt",
+            mime="text/plain",
+            key="download_txt_brief_main"
+        )
+
+    with d2:
+        st.download_button(
+            label="Download PDF Brief",
+            data=pdf_buffer,
+            file_name="tradepulse_nepal_monthly_brief.pdf",
+            mime="application/pdf",
+            key="download_pdf_brief_main"
+        )
+
+    st.caption("PDF button is in this Download Report section inside the Insights tab.")
