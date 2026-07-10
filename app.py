@@ -156,18 +156,30 @@ st.sidebar.caption("Upload a Department of Customs Excel file or use the default
 
 uploaded_file = st.sidebar.file_uploader(
     "Upload customs Excel file",
-    type=["xlsx"]
+    type=["xlsx"],
+    key="customs_excel_uploader"
 )
 
 default_file_path = Path(__file__).parent / "customs.xlsx"
+monthly_data_path = Path(__file__).parent / "monthly_data"
 developer_photo_path = Path(__file__).parent / "utsav.png"
+
+# Main dashboard needs one workbook as its default view.
+# Priority: user upload → customs.xlsx → latest file inside monthly_data.
+latest_monthly_file = None
+if monthly_data_path.exists():
+    monthly_files_for_default = sorted(monthly_data_path.glob("*.xlsx"))
+    if monthly_files_for_default:
+        latest_monthly_file = monthly_files_for_default[-1]
 
 if uploaded_file is not None:
     file_source = uploaded_file
 elif default_file_path.exists():
     file_source = default_file_path
+elif latest_monthly_file is not None:
+    file_source = latest_monthly_file
 else:
-    st.warning("Please upload a customs Excel file from the sidebar to start the dashboard.")
+    st.warning("Please add customs.xlsx to the app folder, or add monthly Excel files inside monthly_data.")
     st.stop()
 
 st.sidebar.markdown("---")
@@ -182,6 +194,16 @@ def load_data(file):
     excel = pd.ExcelFile(file)
 
     trade = pd.read_excel(excel, sheet_name="1_Trade_Direction", header=2)
+    trade.columns = trade.columns.astype(str).str.strip()
+
+    # Some customs files use "Trade Indicators" while others use "Trade.Indicators".
+    # Standardize it so the rest of the dashboard works.
+    for col in trade.columns:
+        clean_col = str(col).lower().replace(".", " ").replace("_", " ").strip()
+        if "trade" in clean_col and "indicator" in clean_col:
+            trade = trade.rename(columns={col: "Trade.Indicators"})
+            break
+
     countries = pd.read_excel(excel, sheet_name="3_Trade_Balance_Country", header=2)
     import_partner = pd.read_excel(excel, sheet_name="4_Imports_By_Commodity_Partner", header=2)
     imports = pd.read_excel(excel, sheet_name="5_Imports_By_Commodity", header=2)
@@ -225,6 +247,123 @@ def get_trade_value(pattern, value_col):
         return 0.0
 
     return safe_number(trade.loc[mask, value_col].iloc[0])
+
+
+
+
+def get_trade_value_from_df(trade_df, pattern, value_col):
+    indicator_series = (
+        trade_df["Trade.Indicators"]
+        .astype(str)
+        .str.lower()
+        .str.replace(".", " ", regex=False)
+        .str.replace("_", " ", regex=False)
+        .str.replace(r"\s+", " ", regex=True)
+        .str.strip()
+    )
+
+    mask = indicator_series.str.contains(
+        pattern,
+        case=False,
+        na=False,
+        regex=True
+    )
+
+    if mask.sum() == 0:
+        return 0.0
+
+    return safe_number(trade_df.loc[mask, value_col].iloc[0])
+
+
+def read_trade_direction_smart(file):
+    # Read without assumptions so monthly files with slightly different labels still work.
+    raw = pd.read_excel(file, sheet_name="1_Trade_Direction", header=None)
+
+    header_row = None
+
+    for i in range(len(raw)):
+        row_text = " ".join(
+            raw.iloc[i]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .tolist()
+        ).lower()
+
+        normalized = row_text.replace(".", " ").replace("_", " ")
+
+        if "trade" in normalized and "indicator" in normalized:
+            header_row = i
+            break
+
+    if header_row is None:
+        raise ValueError("Could not detect header row in 1_Trade_Direction sheet.")
+
+    trade_df = pd.read_excel(file, sheet_name="1_Trade_Direction", header=header_row)
+    trade_df.columns = trade_df.columns.astype(str).str.strip()
+
+    # Rename Trade Indicators column to one standard name
+    for col in trade_df.columns:
+        clean_col = str(col).lower().replace(".", " ").replace("_", " ").strip()
+        if "trade" in clean_col and "indicator" in clean_col:
+            trade_df = trade_df.rename(columns={col: "Trade.Indicators"})
+            break
+
+    if "Trade.Indicators" not in trade_df.columns:
+        raise ValueError("Trade indicator column found, but could not standardize it.")
+
+    return trade_df
+
+
+def extract_trade_snapshot_from_file(file, file_name):
+    trade_df = read_trade_direction_smart(file)
+
+    # Find latest/current value column.
+    # We ignore SN and Change columns, then use the last numeric column.
+    possible_cols = []
+
+    for col in trade_df.columns:
+        col_text = str(col).strip().lower()
+
+        if col == "Trade.Indicators":
+            continue
+        if "change" in col_text:
+            continue
+        if col_text in ["sn", "s n", "s.n", "s.no", "s no"]:
+            continue
+
+        numeric_series = pd.to_numeric(trade_df[col], errors="coerce")
+        if numeric_series.notna().sum() >= 3:
+            possible_cols.append(col)
+
+    if len(possible_cols) == 0:
+        raise ValueError("No usable numeric value column found.")
+
+    selected_col = possible_cols[-1]
+
+    imports_raw = get_trade_value_from_df(trade_df, r"^imports\b", selected_col)
+    exports_raw = get_trade_value_from_df(trade_df, r"^exports\b", selected_col)
+    deficit_raw = get_trade_value_from_df(trade_df, r"^trade\s+deficit\b", selected_col)
+    total_trade_raw = get_trade_value_from_df(trade_df, r"^total\s+foreign\s+trade\b", selected_col)
+
+    period_name = (
+        file_name
+        .replace(".xlsx", "")
+        .replace(".xls", "")
+        .replace("_", " ")
+        .replace("-", " ")
+    )
+
+    return {
+        "File": file_name,
+        "Period": period_name,
+        "Source Column": selected_col,
+        "Imports_Billion": rs_thousand_to_billion(imports_raw),
+        "Exports_Billion": rs_thousand_to_billion(exports_raw),
+        "Trade_Deficit_Billion": rs_thousand_to_billion(deficit_raw),
+        "Total_Trade_Billion": rs_thousand_to_billion(total_trade_raw),
+        "Import_Export_Ratio": imports_raw / exports_raw if exports_raw else 0
+    }
 
 
 def short_text(text, max_len=58):
@@ -568,14 +707,34 @@ def remove_total_rows(df, columns):
 # Prepare data
 # -----------------------------
 
-possible_year_cols = [
-    col for col in trade.columns
-    if str(col).startswith("FY") and "Change" not in str(col)
+# Find the current/latest value column for the main dashboard.
+# Some files use a full FY column name, while Shrawan uses "current".
+possible_year_cols = []
+
+for col in trade.columns:
+    col_text = str(col).strip().lower()
+
+    if col == "Trade.Indicators":
+        continue
+    if "change" in col_text:
+        continue
+    if col_text in ["sn", "s n", "s.n", "s.no", "s no"]:
+        continue
+
+    numeric_series = pd.to_numeric(trade[col], errors="coerce")
+    if numeric_series.notna().sum() >= 3:
+        possible_year_cols.append(col)
+
+preferred_cols = [
+    col for col in possible_year_cols
+    if "2082/83" in str(col) or str(col).strip().lower() == "current"
 ]
 
 current_col = (
     "FY 2082/83 (First 11 Months)"
     if "FY 2082/83 (First 11 Months)" in trade.columns
+    else preferred_cols[-1]
+    if preferred_cols
     else possible_year_cols[-1]
 )
 
@@ -694,8 +853,8 @@ st.caption(f"Current period used: {current_col}. Source values are in Rs. thousa
 # Tabs
 # -----------------------------
 
-overview_tab, product_tab, opportunity_tab, country_tab, route_tab, about_tab, insight_tab = st.tabs(
-    ["Overview", "Products", "Opportunity Finder", "Countries", "Customs Routes", "About / Methodology", "Insights"]
+overview_tab, product_tab, opportunity_tab, country_tab, route_tab, trend_tab, about_tab, insight_tab = st.tabs(
+    ["Overview", "Products", "Opportunity Finder", "Countries", "Customs Routes", "Trends", "About / Methodology", "Insights"]
 )
 
 # -----------------------------
@@ -1338,6 +1497,243 @@ with route_tab:
         ]],
         use_container_width=True
     )
+
+
+# -----------------------------
+# Trends tab
+# -----------------------------
+
+with trend_tab:
+    st.subheader("Multi-Month Trade Trends")
+
+    st.markdown(
+        """
+        <div class="insight-card">
+            <b>How this works:</b> This tab automatically reads all monthly customs Excel files
+            stored inside the <b>monthly_data</b> folder in this app. No upload is needed.
+            For correct ordering, name files like <b>01_Shravan.xlsx</b>, <b>02_Bhadra.xlsx</b>,
+            ... <b>11_Jestha.xlsx</b>.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    monthly_data_path = Path(__file__).parent / "monthly_data"
+
+    if not monthly_data_path.exists():
+        st.warning("monthly_data folder not found. Please add monthly Excel files inside a folder named monthly_data.")
+    else:
+        trend_files = sorted(monthly_data_path.glob("*.xlsx"))
+
+        if len(trend_files) < 2:
+            st.warning("Please add at least two monthly Excel files inside the monthly_data folder.")
+        else:
+            trend_rows = []
+
+            for file_path in trend_files:
+                try:
+                    row = extract_trade_snapshot_from_file(file_path, file_path.name)
+                    trend_rows.append(row)
+                except Exception as e:
+                    st.warning(f"Could not process {file_path.name}: {e}")
+
+            if len(trend_rows) < 2:
+                st.warning("Could not process enough files for trend comparison.")
+            else:
+                trend_df = pd.DataFrame(trend_rows)
+                trend_df["Order"] = range(1, len(trend_df) + 1)
+
+                # Department of Customs monthly files are often cumulative.
+                # Monthly movement is estimated by differencing consecutive cumulative files.
+                trend_df["Monthly_Imports_Billion"] = trend_df["Imports_Billion"].diff()
+                trend_df["Monthly_Exports_Billion"] = trend_df["Exports_Billion"].diff()
+                trend_df["Monthly_Deficit_Billion"] = trend_df["Trade_Deficit_Billion"].diff()
+                trend_df["Monthly_Total_Trade_Billion"] = trend_df["Total_Trade_Billion"].diff()
+
+                trend_df.loc[trend_df.index[0], "Monthly_Imports_Billion"] = trend_df.loc[trend_df.index[0], "Imports_Billion"]
+                trend_df.loc[trend_df.index[0], "Monthly_Exports_Billion"] = trend_df.loc[trend_df.index[0], "Exports_Billion"]
+                trend_df.loc[trend_df.index[0], "Monthly_Deficit_Billion"] = trend_df.loc[trend_df.index[0], "Trade_Deficit_Billion"]
+                trend_df.loc[trend_df.index[0], "Monthly_Total_Trade_Billion"] = trend_df.loc[trend_df.index[0], "Total_Trade_Billion"]
+
+                latest = trend_df.iloc[-1]
+                previous = trend_df.iloc[-2]
+
+                import_change = latest["Imports_Billion"] - previous["Imports_Billion"]
+                export_change = latest["Exports_Billion"] - previous["Exports_Billion"]
+                deficit_change = latest["Trade_Deficit_Billion"] - previous["Trade_Deficit_Billion"]
+
+                t1, t2, t3, t4 = st.columns(4)
+
+                with t1:
+                    kpi_card(
+                        "Latest Imports",
+                        f"Rs {latest['Imports_Billion']:,.2f}B",
+                        f"Previous change: Rs {import_change:,.2f}B"
+                    )
+
+                with t2:
+                    kpi_card(
+                        "Latest Exports",
+                        f"Rs {latest['Exports_Billion']:,.2f}B",
+                        f"Previous change: Rs {export_change:,.2f}B"
+                    )
+
+                with t3:
+                    kpi_card(
+                        "Latest Deficit",
+                        f"Rs {latest['Trade_Deficit_Billion']:,.2f}B",
+                        f"Previous change: Rs {deficit_change:,.2f}B"
+                    )
+
+                with t4:
+                    kpi_card(
+                        "Files Used",
+                        f"{len(trend_df)}",
+                        "Monthly customs files"
+                    )
+
+                st.markdown("### Cumulative Trade Trend")
+
+                cumulative_long = trend_df.melt(
+                    id_vars=["Order", "Period"],
+                    value_vars=[
+                        "Imports_Billion",
+                        "Exports_Billion",
+                        "Trade_Deficit_Billion",
+                        "Total_Trade_Billion"
+                    ],
+                    var_name="Indicator",
+                    value_name="Rs_Billion"
+                )
+
+                fig_cumulative = px.line(
+                    cumulative_long,
+                    x="Order",
+                    y="Rs_Billion",
+                    color="Indicator",
+                    markers=True,
+                    title="Cumulative Trade Movement",
+                    labels={
+                        "Order": "Month Order",
+                        "Rs_Billion": "Rs Billion",
+                        "Indicator": "Indicator"
+                    },
+                    hover_data=["Period"]
+                )
+
+                fig_cumulative.update_layout(
+                    height=520,
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    title_font_size=22,
+                    font=dict(color="#0F172A"),
+                    xaxis=dict(gridcolor="rgba(15,23,42,0.08)"),
+                    yaxis=dict(gridcolor="rgba(15,23,42,0.08)")
+                )
+
+                st.plotly_chart(fig_cumulative, use_container_width=True)
+
+                st.markdown("### Estimated Monthly Movement")
+
+                monthly_long = trend_df.melt(
+                    id_vars=["Order", "Period"],
+                    value_vars=[
+                        "Monthly_Imports_Billion",
+                        "Monthly_Exports_Billion",
+                        "Monthly_Deficit_Billion",
+                        "Monthly_Total_Trade_Billion"
+                    ],
+                    var_name="Indicator",
+                    value_name="Rs_Billion"
+                )
+
+                fig_monthly = px.bar(
+                    monthly_long,
+                    x="Order",
+                    y="Rs_Billion",
+                    color="Indicator",
+                    barmode="group",
+                    title="Estimated Monthly Movement from Cumulative Data",
+                    labels={
+                        "Order": "Month Order",
+                        "Rs_Billion": "Rs Billion",
+                        "Indicator": "Indicator"
+                    },
+                    hover_data=["Period"]
+                )
+
+                fig_monthly.update_layout(
+                    height=540,
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    title_font_size=22,
+                    font=dict(color="#0F172A"),
+                    xaxis=dict(gridcolor="rgba(15,23,42,0.08)"),
+                    yaxis=dict(gridcolor="rgba(15,23,42,0.08)")
+                )
+
+                st.plotly_chart(fig_monthly, use_container_width=True)
+
+                st.markdown("### Latest Movement Signal")
+
+                if import_change > export_change:
+                    movement_note = "Imports increased more than exports in the latest period, which may widen trade-deficit pressure."
+                elif export_change > import_change:
+                    movement_note = "Exports increased more than imports in the latest period, which may slightly ease trade-deficit pressure."
+                else:
+                    movement_note = "Imports and exports moved by a similar amount in the latest period."
+
+                st.markdown(
+                    f"""
+                    <div class="insight-card">
+                        <p>{movement_note}</p>
+                        <p>
+                        Latest cumulative imports changed by <b>Rs {import_change:,.2f} billion</b>,
+                        while cumulative exports changed by <b>Rs {export_change:,.2f} billion</b>.
+                        The trade deficit changed by <b>Rs {deficit_change:,.2f} billion</b>.
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                st.markdown("### Trend Data Table")
+
+                show_cols = [
+                    "Order",
+                    "Period",
+                    "Imports_Billion",
+                    "Exports_Billion",
+                    "Trade_Deficit_Billion",
+                    "Total_Trade_Billion",
+                    "Monthly_Imports_Billion",
+                    "Monthly_Exports_Billion",
+                    "Monthly_Deficit_Billion",
+                    "Monthly_Total_Trade_Billion",
+                    "Import_Export_Ratio"
+                ]
+
+                st.dataframe(
+                    trend_df[show_cols].style.format({
+                        "Imports_Billion": "{:,.2f}",
+                        "Exports_Billion": "{:,.2f}",
+                        "Trade_Deficit_Billion": "{:,.2f}",
+                        "Total_Trade_Billion": "{:,.2f}",
+                        "Monthly_Imports_Billion": "{:,.2f}",
+                        "Monthly_Exports_Billion": "{:,.2f}",
+                        "Monthly_Deficit_Billion": "{:,.2f}",
+                        "Monthly_Total_Trade_Billion": "{:,.2f}",
+                        "Import_Export_Ratio": "{:,.1f}"
+                    }),
+                    use_container_width=True
+                )
+
+                st.download_button(
+                    "Download trend data as CSV",
+                    data=trend_df[show_cols].to_csv(index=False).encode("utf-8"),
+                    file_name="tradepulse_multi_month_trends.csv",
+                    mime="text/csv"
+                )
 
 # -----------------------------
 # About / Methodology tab
