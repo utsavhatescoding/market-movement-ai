@@ -2180,29 +2180,110 @@ Sector summary:
 """.strip()
 
 
-def generate_gemini_trade_answer(question, data_context, api_key, model_name="gemini-3.1-flash-lite"):
-    """Generate Gemini answer using only the processed TradePulse context."""
+def build_compact_gemini_context(
+    current_col,
+    source_file_label,
+    latest_month_label,
+    monthly_files_count,
+    imports_total,
+    exports_total,
+    deficit_total,
+    total_trade,
+    import_export_ratio,
+    imports,
+    exports,
+    countries,
+    customs,
+    sector_summary=None,
+):
+    """Build a small, safe context for Gemini so the public app stays fast."""
+    def top_rows_text(df, name_col, value_col, n=5):
+        try:
+            if df is None or df.empty or name_col not in df.columns or value_col not in df.columns:
+                return "Not available"
+            temp = df.copy()
+            temp[value_col] = pd.to_numeric(temp[value_col], errors="coerce").fillna(0)
+            temp = temp.sort_values(value_col, ascending=False).head(n)
+            lines = []
+            for _, row in temp.iterrows():
+                label = str(row.get(name_col, "")).strip()
+                value = safe_number(row.get(value_col, 0))
+                if label and label.lower() not in ["nan", "total", "grand total"]:
+                    lines.append(f"- {label}: {fmt_money(value)}")
+            return "\n".join(lines) if lines else "Not available"
+        except Exception:
+            return "Not available"
+
+    try:
+        sector_text = "Not available"
+        if sector_summary is not None and not sector_summary.empty:
+            sector_value_col = "Sector_Total_Trade_Billion" if "Sector_Total_Trade_Billion" in sector_summary.columns else None
+            sector_name_col = "Sector" if "Sector" in sector_summary.columns else None
+            if sector_name_col and sector_value_col:
+                sector_text = top_rows_text(sector_summary, sector_name_col, sector_value_col, n=5)
+    except Exception:
+        sector_text = "Not available"
+
+    context = f"""
+TradePulse Nepal compact context
+Source: Department of Customs, Nepal
+Dashboard file: {source_file_label}
+Current period/column: {current_col}
+Latest monthly file: {latest_month_label}
+Monthly files loaded: {monthly_files_count}
+Units: Rs. billion
+
+Core snapshot:
+- Imports: {fmt_money(imports_total)}
+- Exports: {fmt_money(exports_total)}
+- Trade deficit: {fmt_money(deficit_total)}
+- Total foreign trade: {fmt_money(total_trade)}
+- Import-export ratio: {import_export_ratio:,.1f}x
+
+Top imports:
+{top_rows_text(imports, "Description", "Imports", 5)}
+
+Top exports:
+{top_rows_text(exports, "Description", "Exports", 5)}
+
+Top import partners:
+{top_rows_text(countries, "Country", "Imports", 5)}
+
+Top customs routes by imports:
+{top_rows_text(customs, "Customs Office", "Imports", 5)}
+
+Top sectors:
+{sector_text}
+""".strip()
+
+    # Hard cap the context so Gemini requests remain small and do not crash the app.
+    return context[:4500]
+
+
+def generate_gemini_trade_answer(question, data_context, api_key, model_name="gemini-3.1-flash-lite", timeout_seconds=25):
+    """Generate a Gemini answer with safe timeout, small output, and graceful fallback."""
     if not api_key:
         return "Gemini API key is missing. Add GEMINI_API_KEY in Streamlit Secrets to use this tab."
 
     try:
         from google import genai
+        from google.genai import types
     except Exception:
         return "The google-genai package is missing. Add `google-genai` to requirements.txt and redeploy."
 
     system_rules = """
 You are TradePulse Nepal's AI trade analyst.
-Answer only from the provided processed dashboard context.
-Do not invent numbers, dates, sources, products, sectors, or countries.
+Answer only from the provided compact dashboard context.
+Do not invent numbers, dates, sources, products, sectors, countries, or forecasts.
 If the context does not contain enough information, say the data is not available in the current dashboard.
 Use Rs. billion where values are provided that way.
-Be analytical but cautious. Do not give investment advice.
-For most answers, use this structure:
-1. Direct answer
-2. What the data suggests
-3. Why it matters
-4. Caution
-Keep the answer concise and useful for students, researchers, journalists, and businesses in Nepal.
+Do not give investment advice.
+Use this format:
+Direct answer:
+What the data suggests:
+Why it matters:
+Caution:
+Keep the answer under 180 words.
 """.strip()
 
     prompt = f"""
@@ -2215,18 +2296,30 @@ USER QUESTION:
 {question}
 """.strip()
 
-    try:
+    def call_gemini():
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model="gemini-3.1-flash-lite",
-            contents=prompt
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.2,
+                max_output_tokens=450,
+            ),
         )
-        answer = getattr(response, "text", "")
+        return getattr(response, "text", "")
+
+    try:
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(call_gemini)
+            answer = future.result(timeout=timeout_seconds)
         if answer:
             return answer.strip()
-        return "Gemini returned an empty answer. Try again or use the free rule-based Ask TradePulse tab."
+        return "Gemini returned an empty answer. Use the free rule-based Ask TradePulse tab or try again later."
+    except concurrent.futures.TimeoutError:
+        return "Gemini took too long to respond, so I stopped the request. The app is safe. Please use the free rule-based Ask TradePulse tab or try again later."
     except Exception as exc:
-        return f"Gemini could not generate an answer. Error: {exc}"
+        return f"Gemini could not generate an answer safely. Use the free rule-based Ask TradePulse tab. Error: {exc}"
 
 # -----------------------------
 # Prepare data
@@ -4509,8 +4602,8 @@ with gemini_tab:
     st.subheader("Gemini AI Analyst")
 
     st.info(
-        "This is an optional Google Gemini-based analyst. The free rule-based Ask TradePulse tab still works without any API. "
-        "Gemini answers are generated only from a compact processed summary of the dashboard data."
+        "This is an optional Google Gemini-based analyst. The free rule-based Ask TradePulse tab remains the default. "
+        "Safe Mode sends only a compact summary, limits answer length, and prevents slow Gemini calls from crashing the app."
     )
 
     api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -4547,15 +4640,15 @@ with gemini_tab:
     with g1:
         model_name = st.selectbox(
             "Gemini model",
-            ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
+            ["gemini-3.1-flash-lite", "gemini-2.0-flash-lite", "gemini-2.0-flash"],
             index=0,
-            help="Use Flash for better answers. If one model fails, try another available model for your API key."
+            help="Use Flash-Lite first. It is lighter and safer for Streamlit Cloud. If one model fails, try another available model."
         )
     with g2:
         st.metric("Data sent to AI", "Processed summary only", "No raw Excel upload")
 
     with st.expander("Preview data context sent to Gemini"):
-        context_preview = build_tradepulse_ai_context(
+        context_preview = build_compact_gemini_context(
             current_col=current_col,
             source_file_label=source_file_label,
             latest_month_label=latest_month_label,
@@ -4570,15 +4663,14 @@ with gemini_tab:
             countries=countries,
             customs=customs,
             sector_summary=sector_summary,
-            monthly_data_path=Path(__file__).parent / "monthly_data"
         )
-        st.text_area("Processed context", value=context_preview, height=300, key="gemini_context_preview")
+        st.text_area("Compact processed context", value=context_preview, height=260, key="gemini_context_preview")
 
     if "gemini_answer" not in st.session_state:
         st.session_state["gemini_answer"] = ""
 
     if st.button("Generate Gemini AI analysis", type="primary", key="generate_gemini_analysis"):
-        data_context = build_tradepulse_ai_context(
+        data_context = build_compact_gemini_context(
             current_col=current_col,
             source_file_label=source_file_label,
             latest_month_label=latest_month_label,
@@ -4593,10 +4685,9 @@ with gemini_tab:
             countries=countries,
             customs=customs,
             sector_summary=sector_summary,
-            monthly_data_path=Path(__file__).parent / "monthly_data"
         )
 
-        with st.spinner("Gemini is reading the TradePulse data summary..."):
+        with st.spinner("Gemini Safe Mode is reading a compact TradePulse summary..."):
             ai_answer = generate_gemini_trade_answer(
                 question=ai_question,
                 data_context=data_context,
