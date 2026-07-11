@@ -437,7 +437,7 @@ st.sidebar.write(f"**Source:** {source_type_label}")
 st.sidebar.write(f"**File:** {source_file_label}")
 st.sidebar.write(f"**Monthly files:** {monthly_files_count}")
 st.sidebar.info("Source values are in Rs. thousands. Dashboard values are shown in Rs. billion.")
-st.sidebar.markdown("**Version:** Public MVP 0.5")
+st.sidebar.markdown("**Version:** Public MVP 0.7 — Cloud Stable Gemini")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Feedback")
@@ -449,8 +449,16 @@ st.sidebar.markdown("GitHub: **github.com/utsavhatescoding**")
 # Load Excel
 # -----------------------------
 
-def load_data(file):
-    excel = pd.ExcelFile(file)
+@st.cache_data(show_spinner=False, ttl=3600)
+def load_data_cached(source_payload, is_uploaded_file=False, file_mtime_ns=None):
+    """Read the main Customs workbook with caching.
+
+    Streamlit Cloud is slower than local. Caching prevents the full Excel workbook
+    from being re-read on every small UI interaction. file_mtime_ns is only a cache
+    invalidation key for path-based files.
+    """
+    excel_source = BytesIO(source_payload) if is_uploaded_file else source_payload
+    excel = pd.ExcelFile(excel_source)
 
     trade = pd.read_excel(excel, sheet_name="1_Trade_Direction", header=2)
     trade.columns = trade.columns.astype(str).str.strip()
@@ -471,6 +479,16 @@ def load_data(file):
     customs = pd.read_excel(excel, sheet_name="9_Customswise_Trade", header=2)
 
     return trade, countries, import_partner, imports, export_partner, exports, customs
+
+
+def load_data(file):
+    if hasattr(file, "getvalue"):
+        return load_data_cached(file.getvalue(), True)
+
+    file_path = Path(file)
+    # Include modified time in the cache key so monthly GitHub updates refresh properly.
+    return load_data_cached(str(file_path.resolve()), False, file_path.stat().st_mtime_ns)
+
 
 try:
     trade, countries, import_partner, imports, export_partner, exports, customs = load_data(file_source)
@@ -534,6 +552,7 @@ def get_trade_value_from_df(trade_df, pattern, value_col):
     return safe_number(trade_df.loc[mask, value_col].iloc[0])
 
 
+@st.cache_data(show_spinner=False, ttl=3600)
 def read_trade_direction_smart(file):
     # Read without assumptions so monthly files with slightly different labels still work.
     raw = pd.read_excel(file, sheet_name="1_Trade_Direction", header=None)
@@ -574,6 +593,7 @@ def read_trade_direction_smart(file):
     return trade_df
 
 
+@st.cache_data(show_spinner=False, ttl=3600)
 def extract_trade_snapshot_from_file(file, file_name):
     trade_df = read_trade_direction_smart(file)
 
@@ -626,6 +646,7 @@ def extract_trade_snapshot_from_file(file, file_name):
 
 
 
+@st.cache_data(show_spinner=False, ttl=3600)
 def read_product_table(file, sheet_name, value_col):
     """Read commodity import/export table from a customs workbook."""
     df = pd.read_excel(file, sheet_name=sheet_name, header=2)
@@ -665,6 +686,7 @@ def read_product_table(file, sheet_name, value_col):
     return df
 
 
+@st.cache_data(show_spinner=False, ttl=3600)
 def build_product_movement_table(trend_files, sheet_name, value_col):
     """Build latest monthly product movement from cumulative monthly customs files."""
     monthly_tables = []
@@ -718,6 +740,7 @@ def build_product_movement_table(trend_files, sheet_name, value_col):
     return result
 
 
+@st.cache_data(show_spinner=False, ttl=3600)
 def build_trend_summary_for_report(monthly_data_path):
     """Create a compact trend summary for the app and PDF report from static monthly_data files."""
     try:
@@ -2196,7 +2219,7 @@ def build_compact_gemini_context(
     customs,
     sector_summary=None,
     monthly_data_path=None,
-    context_mode="Balanced",
+    context_mode="Detailed",
 ):
     """Build a processed TradePulse context for Gemini.
 
@@ -2205,19 +2228,19 @@ def build_compact_gemini_context(
     monthly aggregate movement, and product-level rising/falling signals.
     """
 
-    mode = str(context_mode or "Balanced").lower()
+    mode = str(context_mode or "Detailed").lower()
     if "light" in mode:
-        top_n = 6
-        movement_n = 4
-        cap = 4500
-    elif "max" in mode or "full" in mode or "detail" in mode:
-        top_n = 12
-        movement_n = 6
-        cap = 7500
-    else:
         top_n = 8
-        movement_n = 5
-        cap = 6000
+        movement_n = 8
+        cap = 9000
+    elif "max" in mode or "full" in mode or "detail" in mode:
+        top_n = 30
+        movement_n = 25
+        cap = 24000
+    else:
+        top_n = 15
+        movement_n = 12
+        cap = 14000
 
     def clean_label(value):
         label = str(value).strip()
@@ -2412,8 +2435,8 @@ Sector summary:
 
     return context[:cap]
 
-def generate_gemini_trade_answer(question, data_context, api_key, model_name="gemini-2.0-flash-lite", timeout_seconds=20):
-    """Generate a Gemini answer with safe timeout, small output, and graceful fallback."""
+def generate_gemini_trade_answer(question, data_context, api_key, model_name="gemini-3.1-flash-lite", timeout_seconds=20):
+    """Generate a Gemini answer with strict network timeout and graceful fallback."""
     if not api_key:
         return "Gemini API key is missing. Add GEMINI_API_KEY in Streamlit Secrets to use this tab."
 
@@ -2435,7 +2458,7 @@ Direct answer:
 What the data suggests:
 Why it matters:
 Caution:
-Keep the answer under 160 words.
+Keep the answer under 240 words.
 """.strip()
 
     prompt = f"""
@@ -2448,30 +2471,38 @@ USER QUESTION:
 {question}
 """.strip()
 
-    def call_gemini():
-        client = genai.Client(api_key=api_key)
+    try:
+        # Set timeout inside the Google GenAI client itself. This is safer on Streamlit
+        # Cloud than wrapping the request in a Python thread, because the old thread can
+        # continue running after a timeout and make the app feel frozen.
+        try:
+            http_options = types.HttpOptions(timeout=timeout_seconds * 1000)
+            client = genai.Client(api_key=api_key, http_options=http_options)
+        except Exception:
+            client = genai.Client(api_key=api_key)
+
         response = client.models.generate_content(
             model=model_name,
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.2,
-                max_output_tokens=420,
+                max_output_tokens=520,
             ),
         )
-        return getattr(response, "text", "")
-
-    try:
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(call_gemini)
-            answer = future.result(timeout=timeout_seconds)
+        answer = getattr(response, "text", "")
         if answer:
             return answer.strip()
-        return "Gemini returned an empty answer. Use the free rule-based Ask TradePulse tab or try again later."
-    except concurrent.futures.TimeoutError:
-        return "Gemini took too long to respond, so I stopped the request. The app is safe. Please use the free rule-based Ask TradePulse tab or try again later."
+        return "Gemini returned an empty answer. Please try again later or use the stable Ask TradePulse tab."
+
     except Exception as exc:
-        return f"Gemini could not generate an answer safely. Use the free rule-based Ask TradePulse tab. Error: {exc}"
+        error_text = str(exc)
+        if "429" in error_text or "RESOURCE_EXHAUSTED" in error_text or "quota" in error_text.lower():
+            return "Gemini free quota is temporarily unavailable. Please try again later or use the stable Ask TradePulse tab."
+        if "timeout" in error_text.lower() or "deadline" in error_text.lower() or "504" in error_text:
+            return "Gemini took too long to respond. Please try again later or use the stable Ask TradePulse tab."
+        if "NOT_FOUND" in error_text or "404" in error_text:
+            return "The selected Gemini model is not available for this API key. Try another model option."
+        return "Gemini could not generate an answer safely. Please try again later or use the stable Ask TradePulse tab."
 
 # -----------------------------
 # Prepare data
@@ -4754,8 +4785,8 @@ with gemini_tab:
     st.subheader("Gemini AI Analyst")
 
     st.info(
-        "Gemini AI Analyst is experimental. The free rule-based Ask TradePulse tab remains the default and most stable option. "
-        "To prevent crashes, Gemini now uses a smaller processed context and builds it only after you click the button."
+        "This is an optional Google Gemini-based analyst. The stable rule-based Ask TradePulse tab remains the default. "
+        "Gemini runs only after you click the button. It receives a rich processed context with product movement, sectors, partners, customs routes, and monthly trends, but not raw Excel files."
     )
 
     api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -4792,24 +4823,23 @@ with gemini_tab:
     with g1:
         model_name = st.selectbox(
             "Gemini model",
-            ["gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-3.1-flash-lite"],
+            ["gemini-3.1-flash-lite", "gemini-2.0-flash-lite", "gemini-2.0-flash"],
             index=0,
             help="Use Flash-Lite first. It is lighter and safer for Streamlit Cloud. If one model fails, try another available model."
         )
     with g2:
         context_mode = st.selectbox(
             "AI data context",
-            ["Light", "Balanced"],
+            ["Detailed", "Balanced", "Light"],
             index=0,
-            help="Light is safest for Streamlit Cloud. Balanced gives a little more processed context but may be slower."
+            help="Detailed gives Gemini more processed product, sector, partner, customs, and movement data. Use Light only if the app is slow."
         )
-        st.metric("Data sent to AI", context_mode, "Built only after button click")
+        st.metric("Data sent to AI", context_mode, "Processed data only")
 
-    with st.expander("What data is sent to Gemini"):
-        st.markdown(
-            "Gemini receives a small processed summary only: totals, top products, partners, sectors, routes, and a few product-movement signals. "
-            "The app no longer builds a long preview automatically, because that made Streamlit slow and unstable."
-        )
+    st.caption(
+        "For stability on Streamlit Cloud, Gemini context is prepared only after you click the button. "
+        "This prevents slow page loads while still giving Gemini a rich processed context."
+    )
 
     if "gemini_answer" not in st.session_state:
         st.session_state["gemini_answer"] = ""
