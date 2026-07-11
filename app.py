@@ -2196,7 +2196,7 @@ def build_compact_gemini_context(
     customs,
     sector_summary=None,
     monthly_data_path=None,
-    context_mode="Detailed",
+    context_mode="Balanced",
 ):
     """Build a processed TradePulse context for Gemini.
 
@@ -2205,19 +2205,19 @@ def build_compact_gemini_context(
     monthly aggregate movement, and product-level rising/falling signals.
     """
 
-    mode = str(context_mode or "Detailed").lower()
+    mode = str(context_mode or "Balanced").lower()
     if "light" in mode:
-        top_n = 8
-        movement_n = 8
-        cap = 9000
+        top_n = 6
+        movement_n = 4
+        cap = 4500
     elif "max" in mode or "full" in mode or "detail" in mode:
-        top_n = 30
-        movement_n = 25
-        cap = 24000
+        top_n = 12
+        movement_n = 6
+        cap = 7500
     else:
-        top_n = 15
-        movement_n = 12
-        cap = 14000
+        top_n = 8
+        movement_n = 5
+        cap = 6000
 
     def clean_label(value):
         label = str(value).strip()
@@ -2412,7 +2412,7 @@ Sector summary:
 
     return context[:cap]
 
-def generate_gemini_trade_answer(question, data_context, api_key, model_name="gemini-3.1-flash-lite", timeout_seconds=35):
+def generate_gemini_trade_answer(question, data_context, api_key, model_name="gemini-2.0-flash-lite", timeout_seconds=20):
     """Generate a Gemini answer with safe timeout, small output, and graceful fallback."""
     if not api_key:
         return "Gemini API key is missing. Add GEMINI_API_KEY in Streamlit Secrets to use this tab."
@@ -2435,7 +2435,7 @@ Direct answer:
 What the data suggests:
 Why it matters:
 Caution:
-Keep the answer under 240 words.
+Keep the answer under 160 words.
 """.strip()
 
     prompt = f"""
@@ -2455,7 +2455,7 @@ USER QUESTION:
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.2,
-                max_output_tokens=650,
+                max_output_tokens=420,
             ),
         )
         return getattr(response, "text", "")
@@ -4754,8 +4754,8 @@ with gemini_tab:
     st.subheader("Gemini AI Analyst")
 
     st.info(
-        "This is an optional Google Gemini-based analyst. The free rule-based Ask TradePulse tab remains the default. "
-        "Smart Mode sends a processed dashboard context with product movement, sectors, partners, customs routes, and monthly trends. It still avoids raw Excel uploads and keeps safe limits."
+        "Gemini AI Analyst is experimental. The free rule-based Ask TradePulse tab remains the default and most stable option. "
+        "To prevent crashes, Gemini now uses a smaller processed context and builds it only after you click the button."
     )
 
     api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -4792,39 +4792,24 @@ with gemini_tab:
     with g1:
         model_name = st.selectbox(
             "Gemini model",
-            ["gemini-3.1-flash-lite", "gemini-2.0-flash-lite", "gemini-2.0-flash"],
+            ["gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-3.1-flash-lite"],
             index=0,
             help="Use Flash-Lite first. It is lighter and safer for Streamlit Cloud. If one model fails, try another available model."
         )
     with g2:
         context_mode = st.selectbox(
             "AI data context",
-            ["Detailed", "Balanced", "Light"],
+            ["Light", "Balanced"],
             index=0,
-            help="Detailed gives Gemini more processed product, sector, partner, customs, and movement data. Use Light only if the app is slow."
+            help="Light is safest for Streamlit Cloud. Balanced gives a little more processed context but may be slower."
         )
-        st.metric("Data sent to AI", context_mode, "Processed data only")
+        st.metric("Data sent to AI", context_mode, "Built only after button click")
 
-    with st.expander("Preview data context sent to Gemini"):
-        context_preview = build_compact_gemini_context(
-            current_col=current_col,
-            source_file_label=source_file_label,
-            latest_month_label=latest_month_label,
-            monthly_files_count=monthly_files_count,
-            imports_total=imports_total,
-            exports_total=exports_total,
-            deficit_total=deficit_total,
-            total_trade=total_trade,
-            import_export_ratio=import_export_ratio,
-            imports=imports,
-            exports=exports,
-            countries=countries,
-            customs=customs,
-            sector_summary=sector_summary,
-            monthly_data_path=monthly_data_path,
-            context_mode=context_mode,
+    with st.expander("What data is sent to Gemini"):
+        st.markdown(
+            "Gemini receives a small processed summary only: totals, top products, partners, sectors, routes, and a few product-movement signals. "
+            "The app no longer builds a long preview automatically, because that made Streamlit slow and unstable."
         )
-        st.text_area("Processed context sent to Gemini", value=context_preview, height=320, key="gemini_context_preview")
 
     if "gemini_answer" not in st.session_state:
         st.session_state["gemini_answer"] = ""
