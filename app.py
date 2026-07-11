@@ -2195,9 +2195,37 @@ def build_compact_gemini_context(
     countries,
     customs,
     sector_summary=None,
+    monthly_data_path=None,
+    context_mode="Detailed",
 ):
-    """Build a small, safe context for Gemini so the public app stays fast."""
-    def top_rows_text(df, name_col, value_col, n=5):
+    """Build a processed TradePulse context for Gemini.
+
+    This is still safer than sending raw Excel files, but it gives Gemini much more useful
+    information: product rankings, sector rankings, partner countries, customs routes,
+    monthly aggregate movement, and product-level rising/falling signals.
+    """
+
+    mode = str(context_mode or "Detailed").lower()
+    if "light" in mode:
+        top_n = 8
+        movement_n = 8
+        cap = 9000
+    elif "max" in mode or "full" in mode or "detail" in mode:
+        top_n = 30
+        movement_n = 25
+        cap = 24000
+    else:
+        top_n = 15
+        movement_n = 12
+        cap = 14000
+
+    def clean_label(value):
+        label = str(value).strip()
+        if not label or label.lower() in ["nan", "total", "grand total", "none"]:
+            return "Unknown"
+        return label
+
+    def top_rows_text(df, name_col, value_col, n=10, extra_cols=None):
         try:
             if df is None or df.empty or name_col not in df.columns or value_col not in df.columns:
                 return "Not available"
@@ -2205,33 +2233,145 @@ def build_compact_gemini_context(
             temp[value_col] = pd.to_numeric(temp[value_col], errors="coerce").fillna(0)
             temp = temp.sort_values(value_col, ascending=False).head(n)
             lines = []
-            for _, row in temp.iterrows():
-                label = str(row.get(name_col, "")).strip()
+            for idx, (_, row) in enumerate(temp.iterrows(), start=1):
+                label = clean_label(row.get(name_col, "Unknown"))
                 value = safe_number(row.get(value_col, 0))
-                if label and label.lower() not in ["nan", "total", "grand total"]:
-                    lines.append(f"- {label}: {fmt_money(value)}")
+                extras = []
+                if extra_cols:
+                    for c in extra_cols:
+                        if c in temp.columns:
+                            extras.append(f"{c}: {row.get(c)}")
+                extra_text = f" | {'; '.join(extras)}" if extras else ""
+                if label != "Unknown":
+                    lines.append(f"{idx}. {label}: {fmt_money(value)}{extra_text}")
             return "\n".join(lines) if lines else "Not available"
         except Exception:
             return "Not available"
 
+    def sector_rows_text(df, n=15):
+        try:
+            if df is None or df.empty or "Sector" not in df.columns:
+                return "Not available"
+            temp = df.copy()
+            sort_col = "Sector_Total_Trade_Billion" if "Sector_Total_Trade_Billion" in temp.columns else (
+                "Imports_Billion" if "Imports_Billion" in temp.columns else None
+            )
+            if not sort_col:
+                return "Not available"
+            temp[sort_col] = pd.to_numeric(temp[sort_col], errors="coerce").fillna(0)
+            temp = temp.sort_values(sort_col, ascending=False).head(n)
+            lines = []
+            for idx, (_, row) in enumerate(temp.iterrows(), start=1):
+                sector = clean_label(row.get("Sector", "Unknown"))
+                imp = safe_number(row.get("Imports_Billion", 0))
+                exp = safe_number(row.get("Exports_Billion", 0))
+                gap = safe_number(row.get("Sector_Gap_Billion", imp - exp))
+                total = safe_number(row.get("Sector_Total_Trade_Billion", imp + exp))
+                lines.append(
+                    f"{idx}. {sector}: total {fmt_money(total)}, imports {fmt_money(imp)}, exports {fmt_money(exp)}, gap {fmt_money(gap)}"
+                )
+            return "\n".join(lines) if lines else "Not available"
+        except Exception:
+            return "Not available"
+
+    def product_movement_text(sheet_name, value_col, label, n=15):
+        try:
+            if not monthly_data_path:
+                return f"{label} movement not available."
+            trend_files = sorted(Path(monthly_data_path).glob("*.xlsx"))
+            if len(trend_files) < 2:
+                return f"{label} movement not available."
+            movement = build_product_movement_table(trend_files, sheet_name, value_col)
+            movement = movement.copy()
+            movement["Latest_Month_Billion"] = pd.to_numeric(movement["Latest_Month_Billion"], errors="coerce").fillna(0)
+            movement["Change_Billion"] = pd.to_numeric(movement["Change_Billion"], errors="coerce").fillna(0)
+            # Keep economically meaningful products; avoids tiny/noisy changes.
+            meaningful = movement[movement["Latest_Month_Billion"].abs() >= 0.01].copy()
+            if meaningful.empty:
+                meaningful = movement.copy()
+
+            rising = meaningful.sort_values("Change_Billion", ascending=False).head(n)
+            falling = meaningful.sort_values("Change_Billion", ascending=True).head(n)
+
+            def rows_to_lines(df, title):
+                lines = [title]
+                for idx, (_, row) in enumerate(df.iterrows(), start=1):
+                    desc = clean_label(row.get("Description", "Unknown"))
+                    hs = str(row.get("HSCode", "")).strip()
+                    latest = safe_number(row.get("Latest_Month_Billion", 0))
+                    change = safe_number(row.get("Change_Billion", 0))
+                    prev_period = row.get("Previous_Period", "previous")
+                    latest_period = row.get("Latest_Period", "latest")
+                    lines.append(
+                        f"{idx}. {desc} (HS {hs}): latest month {fmt_money(latest)}, change {fmt_money(change)} from {prev_period} to {latest_period}"
+                    )
+                return "\n".join(lines)
+
+            return rows_to_lines(rising, f"Top rising {label} products:") + "\n\n" + rows_to_lines(falling, f"Top falling {label} products:")
+        except Exception as exc:
+            return f"{label} movement not available."
+
+    def monthly_trend_table_text(n=20):
+        try:
+            if not monthly_data_path:
+                return "Monthly trend table not available."
+            trend_files = sorted(Path(monthly_data_path).glob("*.xlsx"))
+            rows = []
+            for file_path in trend_files:
+                try:
+                    rows.append(extract_trade_snapshot_from_file(file_path, file_path.name))
+                except Exception:
+                    continue
+            if not rows:
+                return "Monthly trend table not available."
+            trend_df = pd.DataFrame(rows)
+            trend_df["Monthly_Imports_Billion"] = trend_df["Imports_Billion"].diff()
+            trend_df["Monthly_Exports_Billion"] = trend_df["Exports_Billion"].diff()
+            trend_df["Monthly_Deficit_Billion"] = trend_df["Trade_Deficit_Billion"].diff()
+            trend_df.loc[trend_df.index[0], "Monthly_Imports_Billion"] = trend_df.loc[trend_df.index[0], "Imports_Billion"]
+            trend_df.loc[trend_df.index[0], "Monthly_Exports_Billion"] = trend_df.loc[trend_df.index[0], "Exports_Billion"]
+            trend_df.loc[trend_df.index[0], "Monthly_Deficit_Billion"] = trend_df.loc[trend_df.index[0], "Trade_Deficit_Billion"]
+            lines = []
+            for _, row in trend_df.tail(n).iterrows():
+                lines.append(
+                    f"- {row['Period']}: cumulative imports {fmt_money(row['Imports_Billion'])}, exports {fmt_money(row['Exports_Billion'])}, deficit {fmt_money(row['Trade_Deficit_Billion'])}; monthly imports {fmt_money(row['Monthly_Imports_Billion'])}, exports {fmt_money(row['Monthly_Exports_Billion'])}, deficit {fmt_money(row['Monthly_Deficit_Billion'])}"
+                )
+            return "\n".join(lines)
+        except Exception:
+            return "Monthly trend table not available."
+
     try:
-        sector_text = "Not available"
-        if sector_summary is not None and not sector_summary.empty:
-            sector_value_col = "Sector_Total_Trade_Billion" if "Sector_Total_Trade_Billion" in sector_summary.columns else None
-            sector_name_col = "Sector" if "Sector" in sector_summary.columns else None
-            if sector_name_col and sector_value_col:
-                sector_text = top_rows_text(sector_summary, sector_name_col, sector_value_col, n=5)
+        trend_summary = build_trend_summary_for_report(monthly_data_path) if monthly_data_path else None
     except Exception:
-        sector_text = "Not available"
+        trend_summary = None
+
+    latest_movement_text = "Monthly movement not available."
+    if trend_summary:
+        latest_movement_text = (
+            f"Latest movement period: {trend_summary.get('previous_period')} to {trend_summary.get('latest_period')}.\n"
+            f"- Cumulative import change: {fmt_money(trend_summary.get('import_change', 0))}\n"
+            f"- Cumulative export change: {fmt_money(trend_summary.get('export_change', 0))}\n"
+            f"- Cumulative trade deficit change: {fmt_money(trend_summary.get('deficit_change', 0))}\n"
+            f"- Top rising import: {trend_summary.get('top_rising_import')} ({fmt_money(trend_summary.get('top_rising_import_change', 0))})\n"
+            f"- Top falling import: {trend_summary.get('top_falling_import')} ({fmt_money(trend_summary.get('top_falling_import_change', 0))})\n"
+            f"- Top rising export: {trend_summary.get('top_rising_export')} ({fmt_money(trend_summary.get('top_rising_export_change', 0))})\n"
+            f"- Top falling export: {trend_summary.get('top_falling_export')} ({fmt_money(trend_summary.get('top_falling_export_change', 0))})\n"
+            f"- Note: {trend_summary.get('movement_note')}"
+        )
+
+    monthly_trends = monthly_trend_table_text(n=20)
+    import_movement = product_movement_text("5_Imports_By_Commodity", "Imports_Value", "import", movement_n)
+    export_movement = product_movement_text("7_Exports_By_Commodity", "Exports_Value", "export", movement_n)
 
     context = f"""
-TradePulse Nepal compact context
+TradePulse Nepal detailed processed context
 Source: Department of Customs, Nepal
 Dashboard file: {source_file_label}
 Current period/column: {current_col}
 Latest monthly file: {latest_month_label}
 Monthly files loaded: {monthly_files_count}
-Units: Rs. billion
+Units: Rs. billion converted from source values in Rs. thousands
+Context mode: {context_mode}. This is processed dashboard data, not raw Excel.
 
 Core snapshot:
 - Imports: {fmt_money(imports_total)}
@@ -2240,27 +2380,39 @@ Core snapshot:
 - Total foreign trade: {fmt_money(total_trade)}
 - Import-export ratio: {import_export_ratio:,.1f}x
 
-Top imports:
-{top_rows_text(imports, "Description", "Imports", 5)}
+Latest monthly movement summary:
+{latest_movement_text}
 
-Top exports:
-{top_rows_text(exports, "Description", "Exports", 5)}
+Monthly trend table:
+{monthly_trends}
+
+Top import products by cumulative value:
+{top_rows_text(imports, "Description", "Imports_Billion", top_n)}
+
+Top export products by cumulative value:
+{top_rows_text(exports, "Description", "Exports_Billion", top_n)}
+
+Product movement from latest monthly files:
+{import_movement}
+
+{export_movement}
 
 Top import partners:
-{top_rows_text(countries, "Country", "Imports", 5)}
+{top_rows_text(countries, "Partner Countries", "Imports_Billion", top_n)}
+
+Top export destinations:
+{top_rows_text(countries, "Partner Countries", "Exports_Billion", top_n)}
 
 Top customs routes by imports:
-{top_rows_text(customs, "Customs Office", "Imports", 5)}
+{top_rows_text(customs, "Customs", "Imports_Billion", min(top_n, 20))}
 
-Top sectors:
-{sector_text}
+Sector summary:
+{sector_rows_text(sector_summary, min(top_n, 20))}
 """.strip()
 
-    # Hard cap the context so Gemini requests remain small and do not crash the app.
-    return context[:4500]
+    return context[:cap]
 
-
-def generate_gemini_trade_answer(question, data_context, api_key, model_name="gemini-3.1-flash-lite", timeout_seconds=25):
+def generate_gemini_trade_answer(question, data_context, api_key, model_name="gemini-3.1-flash-lite", timeout_seconds=35):
     """Generate a Gemini answer with safe timeout, small output, and graceful fallback."""
     if not api_key:
         return "Gemini API key is missing. Add GEMINI_API_KEY in Streamlit Secrets to use this tab."
@@ -2273,7 +2425,7 @@ def generate_gemini_trade_answer(question, data_context, api_key, model_name="ge
 
     system_rules = """
 You are TradePulse Nepal's AI trade analyst.
-Answer only from the provided compact dashboard context.
+Answer only from the provided processed TradePulse dashboard context.
 Do not invent numbers, dates, sources, products, sectors, countries, or forecasts.
 If the context does not contain enough information, say the data is not available in the current dashboard.
 Use Rs. billion where values are provided that way.
@@ -2283,7 +2435,7 @@ Direct answer:
 What the data suggests:
 Why it matters:
 Caution:
-Keep the answer under 180 words.
+Keep the answer under 240 words.
 """.strip()
 
     prompt = f"""
@@ -2303,7 +2455,7 @@ USER QUESTION:
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.2,
-                max_output_tokens=450,
+                max_output_tokens=650,
             ),
         )
         return getattr(response, "text", "")
@@ -4603,7 +4755,7 @@ with gemini_tab:
 
     st.info(
         "This is an optional Google Gemini-based analyst. The free rule-based Ask TradePulse tab remains the default. "
-        "Safe Mode sends only a compact summary, limits answer length, and prevents slow Gemini calls from crashing the app."
+        "Smart Mode sends a processed dashboard context with product movement, sectors, partners, customs routes, and monthly trends. It still avoids raw Excel uploads and keeps safe limits."
     )
 
     api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -4645,7 +4797,13 @@ with gemini_tab:
             help="Use Flash-Lite first. It is lighter and safer for Streamlit Cloud. If one model fails, try another available model."
         )
     with g2:
-        st.metric("Data sent to AI", "Processed summary only", "No raw Excel upload")
+        context_mode = st.selectbox(
+            "AI data context",
+            ["Detailed", "Balanced", "Light"],
+            index=0,
+            help="Detailed gives Gemini more processed product, sector, partner, customs, and movement data. Use Light only if the app is slow."
+        )
+        st.metric("Data sent to AI", context_mode, "Processed data only")
 
     with st.expander("Preview data context sent to Gemini"):
         context_preview = build_compact_gemini_context(
@@ -4663,8 +4821,10 @@ with gemini_tab:
             countries=countries,
             customs=customs,
             sector_summary=sector_summary,
+            monthly_data_path=monthly_data_path,
+            context_mode=context_mode,
         )
-        st.text_area("Compact processed context", value=context_preview, height=260, key="gemini_context_preview")
+        st.text_area("Processed context sent to Gemini", value=context_preview, height=320, key="gemini_context_preview")
 
     if "gemini_answer" not in st.session_state:
         st.session_state["gemini_answer"] = ""
@@ -4685,9 +4845,11 @@ with gemini_tab:
             countries=countries,
             customs=customs,
             sector_summary=sector_summary,
+            monthly_data_path=monthly_data_path,
+            context_mode=context_mode,
         )
 
-        with st.spinner("Gemini Safe Mode is reading a compact TradePulse summary..."):
+        with st.spinner("Gemini is reading the processed TradePulse context..."):
             ai_answer = generate_gemini_trade_answer(
                 question=ai_question,
                 data_context=data_context,
