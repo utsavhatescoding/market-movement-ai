@@ -1227,6 +1227,373 @@ def remove_total_rows(df, columns):
 
 
 
+
+
+# -----------------------------
+# Sector and product detail helpers
+# -----------------------------
+
+def hs2_code(value):
+    """Return the first two HS digits as an integer, or None when unavailable."""
+    try:
+        clean = str(value).replace(".0", "").strip()
+        digits = "".join(ch for ch in clean if ch.isdigit())
+        if len(digits) < 2:
+            return None
+        return int(digits[:2])
+    except Exception:
+        return None
+
+
+HS_CHAPTER_NAMES = {
+    1: "Live animals",
+    2: "Meat and edible meat offal",
+    3: "Fish and crustaceans",
+    4: "Dairy, eggs and honey",
+    5: "Other animal products",
+    6: "Live trees and plants",
+    7: "Vegetables",
+    8: "Fruit and nuts",
+    9: "Coffee, tea and spices",
+    10: "Cereals",
+    11: "Milling products",
+    12: "Oil seeds and medicinal plants",
+    13: "Gums, resins and extracts",
+    14: "Vegetable plaiting materials",
+    15: "Animal or vegetable fats and oils",
+    16: "Prepared meat and fish",
+    17: "Sugars and confectionery",
+    18: "Cocoa and preparations",
+    19: "Cereal, flour and bakery preparations",
+    20: "Prepared vegetables and fruit",
+    21: "Miscellaneous edible preparations",
+    22: "Beverages",
+    23: "Food industry residues and animal fodder",
+    24: "Tobacco and substitutes",
+    25: "Salt, sulphur, earths, stone and cement",
+    26: "Ores, slag and ash",
+    27: "Mineral fuels and oils",
+    28: "Inorganic chemicals",
+    29: "Organic chemicals",
+    30: "Pharmaceutical products",
+    31: "Fertilizers",
+    32: "Dyes, paints and varnishes",
+    33: "Essential oils, perfumes and cosmetics",
+    34: "Soap, waxes and cleaning products",
+    35: "Albuminoidal substances and glues",
+    36: "Explosives and pyrotechnic products",
+    37: "Photographic goods",
+    38: "Miscellaneous chemical products",
+    39: "Plastics and articles",
+    40: "Rubber and articles",
+    41: "Raw hides and skins",
+    42: "Leather articles",
+    43: "Furskins and artificial fur",
+    44: "Wood and wood articles",
+    45: "Cork and articles",
+    46: "Basketware and wickerwork",
+    47: "Pulp of wood",
+    48: "Paper and paperboard",
+    49: "Printed books and newspapers",
+    50: "Silk",
+    51: "Wool",
+    52: "Cotton",
+    53: "Other vegetable textile fibres",
+    54: "Man-made filaments",
+    55: "Man-made staple fibres",
+    56: "Wadding, felt and nonwovens",
+    57: "Carpets",
+    58: "Special woven fabrics",
+    59: "Coated textile fabrics",
+    60: "Knitted or crocheted fabrics",
+    61: "Knitted apparel",
+    62: "Non-knitted apparel",
+    63: "Other made-up textile articles",
+    64: "Footwear",
+    65: "Headgear",
+    66: "Umbrellas and walking sticks",
+    67: "Feathers and artificial flowers",
+    68: "Stone, plaster, cement and asbestos articles",
+    69: "Ceramic products",
+    70: "Glass and glassware",
+    71: "Precious stones, metals and jewellery",
+    72: "Iron and steel",
+    73: "Articles of iron or steel",
+    74: "Copper and articles",
+    75: "Nickel and articles",
+    76: "Aluminium and articles",
+    78: "Lead and articles",
+    79: "Zinc and articles",
+    80: "Tin and articles",
+    81: "Other base metals",
+    82: "Tools and cutlery",
+    83: "Miscellaneous base metal articles",
+    84: "Machinery and mechanical appliances",
+    85: "Electrical machinery and electronics",
+    86: "Railway or tramway equipment",
+    87: "Vehicles and parts",
+    88: "Aircraft and parts",
+    89: "Ships and boats",
+    90: "Optical, photographic and medical instruments",
+    91: "Clocks and watches",
+    92: "Musical instruments",
+    93: "Arms and ammunition",
+    94: "Furniture, bedding and lighting",
+    95: "Toys, games and sports goods",
+    96: "Miscellaneous manufactured articles",
+    97: "Works of art and antiques",
+}
+
+
+def hs_chapter_label(value):
+    """Return a readable HS chapter label such as '27 - Mineral fuels and oils'."""
+    chapter = hs2_code(value)
+    if chapter is None:
+        return "Unknown HS chapter"
+    return f"{chapter:02d} - {HS_CHAPTER_NAMES.get(chapter, 'Other / reserved HS chapter')}"
+
+
+def sector_from_hscode(value):
+    """Map HS chapters to cleaner HS-based sectors.
+
+    This is more reliable than keyword matching because it uses the international
+    HS chapter structure. It is still a broad analytical grouping, not an official
+    Department of Customs sector classification.
+    """
+    chapter = hs2_code(value)
+
+    if chapter is None:
+        return "Other / unclassified goods"
+
+    if 1 <= chapter <= 5:
+        return "Animal products"
+    if 6 <= chapter <= 14:
+        return "Vegetables, cereals & farm products"
+    if 15 <= chapter <= 24:
+        return "Processed food, oils & beverages"
+    if 25 <= chapter <= 26:
+        return "Minerals & construction inputs"
+    if chapter == 27:
+        return "Petroleum & energy"
+    if 28 <= chapter <= 29:
+        return "Industrial chemicals"
+    if chapter == 30:
+        return "Pharmaceuticals & health"
+    if chapter == 31:
+        return "Fertilizers"
+    if 32 <= chapter <= 38:
+        return "Chemical products"
+    if 39 <= chapter <= 40:
+        return "Plastics & rubber"
+    if 41 <= chapter <= 43:
+        return "Leather & animal hides"
+    if 44 <= chapter <= 49:
+        return "Wood, paper & printed goods"
+    if 50 <= chapter <= 60:
+        return "Textile materials"
+    if 61 <= chapter <= 63:
+        return "Garments & made-up textiles"
+    if 64 <= chapter <= 67:
+        return "Footwear & accessories"
+    if 68 <= chapter <= 70:
+        return "Stone, cement, ceramics & glass"
+    if chapter == 71:
+        return "Precious metals & jewellery"
+    if 72 <= chapter <= 83:
+        return "Metals & metal products"
+    if chapter == 84:
+        return "Machinery & mechanical appliances"
+    if chapter == 85:
+        return "Electrical & electronics"
+    if 86 <= chapter <= 89:
+        return "Vehicles & transport equipment"
+    if chapter == 90:
+        return "Precision, optical & medical devices"
+    if 91 <= chapter <= 93:
+        return "Watches, instruments & special goods"
+    if 94 <= chapter <= 96:
+        return "Furniture, toys & miscellaneous manufactures"
+    if 97 <= chapter <= 99:
+        return "Art, antiques & special transactions"
+
+    return "Other / unclassified goods"
+
+
+def add_sector_column(df):
+    """Add HS-based Sector and HS Chapter columns without changing the original table."""
+    result = df.copy()
+    if "HSCode" in result.columns:
+        result["HS_Chapter"] = result["HSCode"].apply(hs2_code)
+        result["HS_Chapter_Label"] = result["HSCode"].apply(hs_chapter_label)
+        result["Sector"] = result["HSCode"].apply(sector_from_hscode)
+    else:
+        result["HS_Chapter"] = None
+        result["HS_Chapter_Label"] = "Unknown HS chapter"
+        result["Sector"] = "Other / unclassified goods"
+    return result
+
+
+def build_sector_summary(imports_df, exports_df):
+    """Create sector-level import/export summary."""
+    imports_sector = add_sector_column(imports_df)
+    exports_sector = add_sector_column(exports_df)
+
+    imp = (
+        imports_sector
+        .groupby("Sector", as_index=False)["Imports_Billion"]
+        .sum()
+        .rename(columns={"Imports_Billion": "Imports_Billion"})
+    )
+
+    exp = (
+        exports_sector
+        .groupby("Sector", as_index=False)["Exports_Billion"]
+        .sum()
+        .rename(columns={"Exports_Billion": "Exports_Billion"})
+    )
+
+    sector_df = imp.merge(exp, on="Sector", how="outer").fillna(0)
+    sector_df["Sector_Gap_Billion"] = sector_df["Imports_Billion"] - sector_df["Exports_Billion"]
+    sector_df["Total_Trade_Billion"] = sector_df["Imports_Billion"] + sector_df["Exports_Billion"]
+
+    total_imports = sector_df["Imports_Billion"].sum()
+    total_exports = sector_df["Exports_Billion"].sum()
+
+    sector_df["Import_Share"] = (
+        sector_df["Imports_Billion"] / total_imports * 100 if total_imports else 0
+    )
+    sector_df["Export_Share"] = (
+        sector_df["Exports_Billion"] / total_exports * 100 if total_exports else 0
+    )
+    sector_df["Import_Export_Ratio"] = sector_df.apply(
+        lambda row: row["Imports_Billion"] / row["Exports_Billion"] if row["Exports_Billion"] else None,
+        axis=1
+    )
+
+    return sector_df.sort_values("Imports_Billion", ascending=False)
+
+
+def get_sector_top_products(imports_df, exports_df, sector_name, top_n=8):
+    imports_sector = add_sector_column(imports_df)
+    exports_sector = add_sector_column(exports_df)
+
+    top_import_products = (
+        imports_sector[imports_sector["Sector"] == sector_name]
+        .sort_values("Imports_Billion", ascending=False)
+        .head(top_n)
+    )
+
+    top_export_products = (
+        exports_sector[exports_sector["Sector"] == sector_name]
+        .sort_values("Exports_Billion", ascending=False)
+        .head(top_n)
+    )
+
+    return top_import_products, top_export_products
+
+
+def sector_signal(row):
+    """Write a simple analyst note for a sector."""
+    imports_value = float(row.get("Imports_Billion", 0) or 0)
+    exports_value = float(row.get("Exports_Billion", 0) or 0)
+    gap_value = float(row.get("Sector_Gap_Billion", 0) or 0)
+
+    if imports_value > exports_value * 5 and imports_value >= 10:
+        return "High import dependence. Useful for import-substitution research, sourcing analysis, and price-risk monitoring."
+    if exports_value > imports_value and exports_value >= 1:
+        return "Export-oriented sector. Useful for competitiveness and market-access analysis."
+    if gap_value > 0:
+        return "Net import sector. Watch domestic demand, exchange-rate pressure, and supply-chain exposure."
+    return "Balanced or small sector. Interpret together with product-level details."
+
+
+def product_detail_summary(product_row, direction="import"):
+    """Create a compact product summary from a selected row."""
+    description = product_row.get("Description", "Selected product")
+    hs = product_row.get("HSCode", "")
+    sector = sector_from_hscode(hs)
+
+    if direction == "import":
+        value = product_row.get("Imports_Billion", 0)
+        unit = product_row.get("Unit", "")
+        quantity = product_row.get("Quantity", "")
+        return {
+            "description": description,
+            "hs": hs,
+            "sector": sector,
+            "value_label": "Import value",
+            "value": value,
+            "unit": unit,
+            "quantity": quantity,
+            "note": "High import value can signal strong domestic demand, dependency risk, or import-substitution potential."
+        }
+
+    value = product_row.get("Exports_Billion", 0)
+    unit = product_row.get("Unit", "")
+    quantity = product_row.get("Quantity", "")
+    return {
+        "description": description,
+        "hs": hs,
+        "sector": sector,
+        "value_label": "Export value",
+        "value": value,
+        "unit": unit,
+        "quantity": quantity,
+        "note": "Export value can signal existing competitiveness, market access, or product specialization."
+    }
+
+
+def product_partner_table(partner_df, hscode, value_col, display_value_col, top_n=10):
+    """Return top partner countries for a product from commodity-partner sheets."""
+    if partner_df is None or len(partner_df) == 0 or "HSCode" not in partner_df.columns:
+        return pd.DataFrame()
+
+    temp = partner_df.copy()
+    temp["HSCode_Clean"] = clean_hscode(temp["HSCode"])
+
+    selected = temp[temp["HSCode_Clean"].astype(str) == str(hscode)].copy()
+
+    if len(selected) == 0:
+        return pd.DataFrame()
+
+    selected = selected.sort_values(value_col, ascending=False).head(top_n)
+
+    cols = ["Partner Countries", display_value_col]
+    available_cols = [col for col in cols if col in selected.columns]
+
+    return selected[available_cols]
+
+
+def product_monthly_movement(monthly_data_path, hscode, direction="import"):
+    """Return monthly movement for one product from cumulative monthly files when available."""
+    try:
+        monthly_data_path = Path(monthly_data_path)
+        if not monthly_data_path.exists():
+            return pd.DataFrame()
+
+        trend_files = sorted(monthly_data_path.glob("*.xlsx"))
+        if len(trend_files) < 2:
+            return pd.DataFrame()
+
+        if direction == "import":
+            movement = build_product_movement_table(
+                trend_files,
+                "5_Imports_By_Commodity",
+                "Imports_Value"
+            )
+        else:
+            movement = build_product_movement_table(
+                trend_files,
+                "7_Exports_By_Commodity",
+                "Exports_Value"
+            )
+
+        selected = movement[movement["HSCode"].astype(str) == str(hscode)].copy()
+        return selected
+
+    except Exception:
+        return pd.DataFrame()
+
 # -----------------------------
 # Automated insight engine
 # -----------------------------
@@ -1755,6 +2122,8 @@ top_customs_office = top_customs.iloc[0]["Customs"]
 top_customs_value = top_customs.iloc[0]["Imports_Billion"]
 top5_route_share = top_customs["Import_Share"].head(5).sum()
 
+sector_summary = build_sector_summary(imports, exports)
+
 automated_insights = build_automated_insights(
     imports_total=imports_total,
     exports_total=exports_total,
@@ -1834,8 +2203,20 @@ st.caption(
 # Tabs
 # -----------------------------
 
-overview_tab, product_tab, opportunity_tab, country_tab, route_tab, trend_tab, about_tab, insight_tab, ask_tab = st.tabs(
-    ["Overview", "Products", "Opportunity Finder", "Countries", "Customs Routes", "Trends", "About / Methodology", "Insights", "Ask TradePulse"]
+overview_tab, product_tab, sector_tab, detail_tab, opportunity_tab, country_tab, route_tab, trend_tab, about_tab, insight_tab, ask_tab = st.tabs(
+    [
+        "Overview",
+        "Products",
+        "Sectors",
+        "Product Detail",
+        "Opportunity Finder",
+        "Countries",
+        "Customs Routes",
+        "Trends",
+        "About / Methodology",
+        "Insights",
+        "Ask TradePulse"
+    ]
 )
 
 # -----------------------------
@@ -2162,6 +2543,369 @@ with opportunity_tab:
             file_name="opportunity_finder_products.csv",
             mime="text/csv"
         )
+
+
+# -----------------------------
+# Sector Dashboard tab
+# -----------------------------
+
+with sector_tab:
+    st.subheader("Sector Dashboard")
+
+    st.markdown(
+        """
+        This section groups HS-code products into broad sectors so users can quickly see
+        where Nepal's import pressure, export strength, and sector-level trade gaps are concentrated.
+        """
+    )
+
+    if sector_summary.empty:
+        st.warning("Sector summary could not be created from the current customs file.")
+    else:
+        sector_k1, sector_k2, sector_k3, sector_k4 = st.columns(4)
+
+        top_import_sector = sector_summary.sort_values("Imports_Billion", ascending=False).iloc[0]
+        top_export_sector = sector_summary.sort_values("Exports_Billion", ascending=False).iloc[0]
+        top_gap_sector = sector_summary.sort_values("Sector_Gap_Billion", ascending=False).iloc[0]
+
+        with sector_k1:
+            kpi_card("Top Import Sector", short_text(top_import_sector["Sector"], 32), f"Rs {top_import_sector['Imports_Billion']:,.2f}B")
+        with sector_k2:
+            kpi_card("Top Export Sector", short_text(top_export_sector["Sector"], 32), f"Rs {top_export_sector['Exports_Billion']:,.2f}B")
+        with sector_k3:
+            kpi_card("Largest Sector Gap", short_text(top_gap_sector["Sector"], 32), f"Rs {top_gap_sector['Sector_Gap_Billion']:,.2f}B")
+        with sector_k4:
+            kpi_card("Sectors Covered", f"{len(sector_summary):,}", "HS chapters grouped into sectors")
+
+        st.markdown("### Sector Trade Structure")
+
+        sector_chart_df = sector_summary.sort_values("Imports_Billion", ascending=True)
+
+        fig_sector = px.bar(
+            sector_chart_df,
+            x=["Imports_Billion", "Exports_Billion"],
+            y="Sector",
+            orientation="h",
+            title="Sector-wise Imports and Exports",
+            labels={
+                "value": "Rs Billion",
+                "Sector": "Sector",
+                "variable": "Trade flow"
+            }
+        )
+
+        fig_sector.update_layout(
+            height=620,
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            title_font_size=20,
+            font=dict(color="#102A43"),
+            xaxis=dict(gridcolor="rgba(16,42,67,0.08)")
+        )
+
+        st.plotly_chart(fig_sector, use_container_width=True)
+
+        st.markdown("### Sector Table")
+
+        display_sector = sector_summary.copy()
+        display_sector["Signal"] = display_sector.apply(sector_signal, axis=1)
+
+        st.dataframe(
+            display_sector[[
+                "Sector",
+                "Imports_Billion",
+                "Exports_Billion",
+                "Sector_Gap_Billion",
+                "Import_Share",
+                "Export_Share",
+                "Signal"
+            ]].style.format({
+                "Imports_Billion": "{:,.2f}",
+                "Exports_Billion": "{:,.2f}",
+                "Sector_Gap_Billion": "{:,.2f}",
+                "Import_Share": "{:,.1f}%",
+                "Export_Share": "{:,.1f}%"
+            }),
+            use_container_width=True
+        )
+
+        st.download_button(
+            "Download sector summary as CSV",
+            data=display_sector.to_csv(index=False).encode("utf-8"),
+            file_name="tradepulse_sector_summary.csv",
+            mime="text/csv"
+        )
+
+        st.markdown("### Explore a Sector")
+
+        selected_sector = st.selectbox(
+            "Choose sector",
+            sector_summary["Sector"].tolist(),
+            key="sector_selector"
+        )
+
+        selected_sector_row = sector_summary[sector_summary["Sector"] == selected_sector].iloc[0]
+
+        st.info(sector_signal(selected_sector_row))
+
+        sp1, sp2 = st.columns(2)
+
+        sector_top_imports, sector_top_exports = get_sector_top_products(
+            imports,
+            exports,
+            selected_sector,
+            top_n=10
+        )
+
+        with sp1:
+            st.markdown("#### Top import products in this sector")
+            if len(sector_top_imports) == 0:
+                st.caption("No import products found for this sector.")
+            else:
+                st.dataframe(
+                    sector_top_imports[["HSCode", "Description", "Imports_Billion"]].style.format({
+                        "Imports_Billion": "{:,.2f}"
+                    }),
+                    use_container_width=True
+                )
+
+        with sp2:
+            st.markdown("#### Top export products in this sector")
+            if len(sector_top_exports) == 0:
+                st.caption("No export products found for this sector.")
+            else:
+                st.dataframe(
+                    sector_top_exports[["HSCode", "Description", "Exports_Billion"]].style.format({
+                        "Exports_Billion": "{:,.2f}"
+                    }),
+                    use_container_width=True
+                )
+
+
+# -----------------------------
+# Product Detail tab
+# -----------------------------
+
+with detail_tab:
+    st.subheader("Product Detail Page")
+
+    st.markdown(
+        """
+        Search a product or HS code to see its current import/export value, sector,
+        partner countries, and monthly movement where available.
+        """
+    )
+
+    product_mode = st.radio(
+        "Product direction",
+        ["Import product", "Export product"],
+        horizontal=True,
+        key="product_detail_mode"
+    )
+
+    if product_mode == "Import product":
+        product_source = imports.copy()
+        value_col_for_sort = "Imports_Billion"
+        direction = "import"
+    else:
+        product_source = exports.copy()
+        value_col_for_sort = "Exports_Billion"
+        direction = "export"
+
+    product_source["Search_Label"] = (
+        product_source["HSCode"].astype(str)
+        + " · "
+        + product_source["Description"].astype(str)
+    )
+
+    product_search = st.text_input(
+        "Search product name or HS code",
+        placeholder="Example: diesel, gold, rice, 2710, tea...",
+        key="product_detail_search"
+    )
+
+    if product_search:
+        product_filtered = product_source[
+            product_source["Description"].astype(str).str.contains(product_search, case=False, na=False)
+            | product_source["HSCode"].astype(str).str.contains(product_search, case=False, na=False)
+        ].copy()
+    else:
+        product_filtered = product_source.sort_values(value_col_for_sort, ascending=False).head(100).copy()
+
+    product_filtered = product_filtered.sort_values(value_col_for_sort, ascending=False)
+
+    if len(product_filtered) == 0:
+        st.warning("No product found. Try another name or HS code.")
+    else:
+        selected_label = st.selectbox(
+            "Select product",
+            product_filtered["Search_Label"].tolist(),
+            key="product_detail_selector"
+        )
+
+        selected_product = product_filtered[
+            product_filtered["Search_Label"] == selected_label
+        ].iloc[0]
+
+        detail = product_detail_summary(selected_product, direction=direction)
+
+        d1, d2, d3, d4 = st.columns(4)
+
+        with d1:
+            kpi_card(detail["value_label"], f"Rs {float(detail['value']):,.2f}B", "Current dashboard period")
+        with d2:
+            kpi_card("Sector", short_text(detail["sector"], 34), "Based on HS chapter")
+        with d3:
+            kpi_card("HS Code", str(detail["hs"]), "Commodity classification")
+        with d4:
+            kpi_card("Quantity", f"{detail['quantity']}", f"Unit: {detail['unit']}")
+
+        st.markdown("### Product Analyst Note")
+
+        st.markdown(
+            f"""
+            <div class="section-card">
+                <h3>{clean_display(detail['description'])}</h3>
+                <p><b>Sector:</b> {clean_display(detail['sector'])}</p>
+                <p><b>Data signal:</b> {clean_display(detail['note'])}</p>
+                <p><b>Caution:</b> This is a screening view from customs data only. It does not include domestic production, prices, margins, or firm-level data.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.markdown("### Partner Countries")
+
+        if direction == "import":
+            partner_table = product_partner_table(
+                import_partner,
+                detail["hs"],
+                "Imports_Value",
+                "Imports_Billion",
+                top_n=10
+            )
+            partner_value_col = "Imports_Billion"
+            partner_title = "Top import partner countries"
+        else:
+            partner_table = product_partner_table(
+                export_partner,
+                detail["hs"],
+                "Exports_Value",
+                "Exports_Billion",
+                top_n=10
+            )
+            partner_value_col = "Exports_Billion"
+            partner_title = "Top export destination countries"
+
+        if len(partner_table) == 0:
+            st.caption("Partner-country detail was not found for this product in the current file.")
+        else:
+            st.markdown(f"#### {partner_title}")
+
+            partner_table = partner_table.copy()
+            if partner_value_col in partner_table.columns:
+                partner_table[partner_value_col] = pd.to_numeric(partner_table[partner_value_col], errors="coerce")
+
+            fig_partner = px.bar(
+                partner_table.sort_values(partner_value_col, ascending=True),
+                x=partner_value_col,
+                y="Partner Countries",
+                orientation="h",
+                title=partner_title,
+                labels={
+                    partner_value_col: "Rs Billion",
+                    "Partner Countries": "Partner country"
+                }
+            )
+
+            fig_partner.update_layout(
+                height=460,
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                title_font_size=20,
+                font=dict(color="#102A43"),
+                xaxis=dict(gridcolor="rgba(16,42,67,0.08)")
+            )
+
+            st.plotly_chart(fig_partner, use_container_width=True)
+
+            st.dataframe(
+                partner_table.style.format({partner_value_col: "{:,.2f}"}),
+                use_container_width=True
+            )
+
+        st.markdown("### Monthly Movement")
+
+        movement_table = product_monthly_movement(
+            monthly_data_path,
+            detail["hs"],
+            direction=direction
+        )
+
+        if len(movement_table) == 0:
+            st.caption("Monthly movement was not available for this product from the monthly_data folder.")
+        else:
+            movement_row = movement_table.iloc[0]
+
+            m1, m2, m3 = st.columns(3)
+            with m1:
+                kpi_card("Latest Month", f"Rs {movement_row['Latest_Month_Billion']:,.2f}B", str(movement_row["Latest_Period"]))
+            with m2:
+                kpi_card("Previous Month", f"Rs {movement_row['Previous_Month_Billion']:,.2f}B", str(movement_row["Previous_Period"]))
+            with m3:
+                kpi_card("Monthly Change", f"Rs {movement_row['Change_Billion']:,.2f}B", "Latest minus previous")
+
+            st.dataframe(
+                movement_table[[
+                    "HSCode",
+                    "Description",
+                    "Latest_Cumulative_Billion",
+                    "Previous_Month_Billion",
+                    "Latest_Month_Billion",
+                    "Change_Billion",
+                    "Growth_Percent"
+                ]].style.format({
+                    "Latest_Cumulative_Billion": "{:,.2f}",
+                    "Previous_Month_Billion": "{:,.2f}",
+                    "Latest_Month_Billion": "{:,.2f}",
+                    "Change_Billion": "{:,.2f}",
+                    "Growth_Percent": "{:,.1f}%"
+                }),
+                use_container_width=True
+            )
+
+        st.markdown("### Route Context")
+
+        st.caption(
+            "The current product detail view uses overall customs-route data because the loaded workbook does not provide product-by-customs-route detail in the sheets used by this app."
+        )
+
+        st.dataframe(
+            top_customs[["Customs", "Imports_Billion", "Exports_Billion", "Import_Share"]].style.format({
+                "Imports_Billion": "{:,.2f}",
+                "Exports_Billion": "{:,.2f}",
+                "Import_Share": "{:,.1f}%"
+            }),
+            use_container_width=True
+        )
+
+        product_detail_export = pd.DataFrame([{
+            "HSCode": detail["hs"],
+            "Description": detail["description"],
+            "Direction": direction,
+            "Sector": detail["sector"],
+            "Value_Billion": detail["value"],
+            "Unit": detail["unit"],
+            "Quantity": detail["quantity"]
+        }])
+
+        st.download_button(
+            "Download product detail as CSV",
+            data=product_detail_export.to_csv(index=False).encode("utf-8"),
+            file_name="tradepulse_product_detail.csv",
+            mime="text/csv"
+        )
+
 
 # -----------------------------
 # Country tab
