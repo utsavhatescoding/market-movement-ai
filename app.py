@@ -16,9 +16,10 @@ from reportlab.lib.units import inch
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import html
 
 st.set_page_config(
-    page_title="Market Movement AI Dashboard",
+    page_title="TradePulse Nepal",
     page_icon="📊",
     layout="wide"
 )
@@ -29,120 +30,336 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+    :root {
+        --tp-bg: #F8FAFC;
+        --tp-card: #FFFFFF;
+        --tp-ink: #0F172A;
+        --tp-muted: #64748B;
+        --tp-line: #E2E8F0;
+        --tp-blue: #2563EB;
+        --tp-green: #059669;
+        --tp-amber: #B7791F;
+        --tp-red: #BE123C;
+    }
+
+    .stApp {
+        background:
+            radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 30%),
+            linear-gradient(180deg, #FFFFFF 0%, var(--tp-bg) 42%, #F8FAFC 100%);
+    }
+
     .block-container {
-        padding-top: 1.4rem;
+        padding-top: 1.2rem;
+        padding-bottom: 3rem;
         max-width: 1280px;
     }
 
+    section[data-testid="stSidebar"] {
+        background: #FFFFFF;
+        border-right: 1px solid var(--tp-line);
+    }
+
     .hero {
-        background: linear-gradient(135deg, #102A43 0%, #243B53 55%, #B7791F 130%);
-        padding: 34px 36px;
-        border-radius: 26px;
+        background:
+            linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 64, 175, 0.92) 54%, rgba(5, 150, 105, 0.85) 130%);
+        padding: 36px 38px;
+        border-radius: 28px;
         color: white;
-        margin-bottom: 22px;
-        box-shadow: 0 18px 45px rgba(16, 42, 67, 0.18);
+        margin-bottom: 24px;
+        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .hero:after {
+        content: "";
+        position: absolute;
+        right: -90px;
+        top: -90px;
+        width: 260px;
+        height: 260px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.10);
     }
 
     .hero-title {
-        font-size: 42px;
-        font-weight: 800;
-        letter-spacing: -1.2px;
-        margin-bottom: 8px;
+        font-size: 46px;
+        font-weight: 850;
+        letter-spacing: -1.5px;
+        margin-bottom: 10px;
+        line-height: 1.05;
+        position: relative;
+        z-index: 1;
     }
 
     .hero-subtitle {
         font-size: 17px;
-        opacity: 0.88;
-        max-width: 820px;
-        line-height: 1.55;
+        opacity: 0.92;
+        max-width: 850px;
+        line-height: 1.6;
+        position: relative;
+        z-index: 1;
     }
 
     .pill {
-        display: inline-block;
-        padding: 7px 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 13px;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.14);
-        border: 1px solid rgba(255, 255, 255, 0.20);
+        border: 1px solid rgba(255, 255, 255, 0.24);
         font-size: 12px;
         letter-spacing: 0.6px;
         text-transform: uppercase;
-        margin-bottom: 14px;
+        margin-bottom: 16px;
+        font-weight: 750;
+        position: relative;
+        z-index: 1;
+    }
+
+    .pill:before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #22C55E;
+        box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.14);
     }
 
     .kpi-card {
-        background: #FFFFFF;
-        border: 1px solid rgba(16, 42, 67, 0.08);
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid var(--tp-line);
         border-radius: 22px;
         padding: 20px 22px;
-        box-shadow: 0 12px 28px rgba(16, 42, 67, 0.08);
+        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.07);
         min-height: 132px;
     }
 
     .kpi-label {
-        font-size: 13px;
-        color: #6B7280;
+        font-size: 12px;
+        color: var(--tp-muted);
         text-transform: uppercase;
-        letter-spacing: 0.7px;
-        font-weight: 700;
+        letter-spacing: 0.8px;
+        font-weight: 800;
         margin-bottom: 10px;
     }
 
     .kpi-value {
-        font-size: 31px;
-        color: #102A43;
-        font-weight: 800;
-        letter-spacing: -0.8px;
+        font-size: 32px;
+        color: var(--tp-ink);
+        font-weight: 850;
+        letter-spacing: -0.9px;
         margin-bottom: 6px;
     }
 
     .kpi-note {
         font-size: 13px;
-        color: #7C6F64;
+        color: var(--tp-muted);
+        line-height: 1.4;
     }
 
     .section-card {
         background: #FFFFFF;
         border-radius: 24px;
         padding: 22px;
-        border: 1px solid rgba(16, 42, 67, 0.08);
-        box-shadow: 0 12px 28px rgba(16, 42, 67, 0.06);
+        border: 1px solid var(--tp-line);
+        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.055);
         margin-bottom: 16px;
-        line-height: 1.55;
+        line-height: 1.6;
     }
 
     .insight-card {
-        background: #FFF9EC;
-        border-left: 5px solid #B7791F;
+        background: #EFF6FF;
+        border: 1px solid #BFDBFE;
+        border-left: 5px solid var(--tp-blue);
         border-radius: 18px;
         padding: 18px 20px;
         margin-bottom: 14px;
-        color: #102A43;
-        line-height: 1.55;
+        color: var(--tp-ink);
+        line-height: 1.58;
     }
 
     .risk-card {
         background: #FFF1F2;
-        border-left: 5px solid #BE123C;
+        border: 1px solid #FFE4E6;
+        border-left: 5px solid var(--tp-red);
         border-radius: 18px;
         padding: 18px 20px;
         margin-bottom: 14px;
-        color: #102A43;
-        line-height: 1.55;
+        color: var(--tp-ink);
+        line-height: 1.58;
     }
 
     .opportunity-card {
         background: #ECFDF5;
-        border-left: 5px solid #059669;
+        border: 1px solid #BBF7D0;
+        border-left: 5px solid var(--tp-green);
         border-radius: 18px;
         padding: 18px 20px;
         margin-bottom: 14px;
-        color: #102A43;
+        color: var(--tp-ink);
+        line-height: 1.58;
+    }
+
+    .analyst-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin: 12px 0 18px 0;
+    }
+
+    .analyst-card {
+        background: #FFFFFF;
+        border: 1px solid var(--tp-line);
+        border-radius: 20px;
+        padding: 18px 19px;
+        box-shadow: 0 12px 26px rgba(15, 23, 42, 0.055);
+    }
+
+    .analyst-card h4 {
+        margin: 0 0 8px 0;
+        color: var(--tp-ink);
+        font-size: 16px;
+        letter-spacing: -0.2px;
+    }
+
+    .analyst-card p {
+        margin: 0;
+        color: #334155;
         line-height: 1.55;
+        font-size: 14px;
+    }
+
+    .insight-badge {
+        display: inline-block;
+        padding: 5px 10px;
+        border-radius: 999px;
+        background: #E0F2FE;
+        color: #075985;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.55px;
+        text-transform: uppercase;
+        margin-bottom: 10px;
+    }
+
+    .executive-brief {
+        background: #FFFFFF;
+        border: 1px solid var(--tp-line);
+        border-radius: 24px;
+        padding: 22px;
+        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
+        line-height: 1.65;
+    }
+
+    div[data-testid="stTabs"] button {
+        border-radius: 999px;
+        font-weight: 700;
+    }
+
+    .stDownloadButton button, .stButton button {
+        border-radius: 999px !important;
+        font-weight: 750 !important;
+        border: 1px solid var(--tp-line) !important;
     }
 
     h1, h2, h3 {
-        color: #102A43;
+        color: var(--tp-ink);
         letter-spacing: -0.4px;
+    }
+
+
+    .feedback-card {
+        background: linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%);
+        border: 1px solid var(--tp-line);
+        border-radius: 24px;
+        padding: 22px;
+        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.055);
+        margin: 16px 0;
+        line-height: 1.6;
+    }
+
+    .feedback-card h3 {
+        margin-top: 0;
+        margin-bottom: 8px;
+    }
+
+    .contact-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 14px;
+    }
+
+    .contact-item {
+        background: #F8FAFC;
+        border: 1px solid var(--tp-line);
+        border-radius: 16px;
+        padding: 14px 15px;
+        font-size: 14px;
+    }
+
+    .contact-item b {
+        display: block;
+        color: var(--tp-ink);
+        margin-bottom: 4px;
+    }
+
+    .tp-footer {
+        margin-top: 34px;
+        padding: 22px 24px;
+        border: 1px solid var(--tp-line);
+        border-radius: 24px;
+        background: #FFFFFF;
+        color: var(--tp-muted);
+        font-size: 13px;
+        line-height: 1.55;
+        box-shadow: 0 12px 26px rgba(15, 23, 42, 0.045);
+    }
+
+    .tp-footer b {
+        color: var(--tp-ink);
+    }
+
+    @media (max-width: 768px) {
+        .block-container {
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+
+        .hero {
+            padding: 26px 22px;
+            border-radius: 22px;
+        }
+
+        .hero-title {
+            font-size: 32px;
+            line-height: 1.08;
+        }
+
+        .hero-subtitle {
+            font-size: 15px;
+        }
+
+        .kpi-card {
+            min-height: auto;
+            padding: 16px;
+            margin-bottom: 10px;
+        }
+
+        .kpi-value {
+            font-size: 26px;
+        }
+
+        .analyst-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .contact-grid {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -182,9 +399,51 @@ else:
     st.warning("Please add customs.xlsx to the app folder, or add monthly Excel files inside monthly_data.")
     st.stop()
 
+def clean_period_label(file_path):
+    try:
+        stem = Path(file_path).stem
+    except Exception:
+        stem = str(file_path)
+    return stem.replace("_", " ").replace("-", " ").strip()
+
+
+def data_source_name(file_obj):
+    if hasattr(file_obj, "name"):
+        return file_obj.name
+    try:
+        return Path(file_obj).name
+    except Exception:
+        return "Uploaded workbook"
+
+
+def data_source_type(uploaded_file, default_file_path, latest_monthly_file, file_source):
+    if uploaded_file is not None:
+        return "Uploaded file"
+    if default_file_path.exists() and Path(file_source) == default_file_path:
+        return "Default customs.xlsx"
+    if latest_monthly_file is not None:
+        return "Latest monthly_data file"
+    return "Workbook"
+
+
+monthly_files_count = len(monthly_files_for_default) if monthly_data_path.exists() else 0
+latest_month_label = clean_period_label(latest_monthly_file) if latest_monthly_file is not None else "Not available"
+source_file_label = data_source_name(file_source)
+source_type_label = data_source_type(uploaded_file, default_file_path, latest_monthly_file, file_source)
+
 st.sidebar.markdown("---")
+st.sidebar.markdown("### Data Status")
+st.sidebar.write(f"**Source:** {source_type_label}")
+st.sidebar.write(f"**File:** {source_file_label}")
+st.sidebar.write(f"**Monthly files:** {monthly_files_count}")
 st.sidebar.info("Source values are in Rs. thousands. Dashboard values are shown in Rs. billion.")
-st.sidebar.markdown("**Version:** Professional MVP 0.3")
+st.sidebar.markdown("**Version:** Public MVP 0.5")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### Feedback")
+st.sidebar.caption("Found an issue or have an idea?")
+st.sidebar.markdown("Email: **utsavkphuyal@gmail.com**")
+st.sidebar.markdown("GitHub: **github.com/utsavhatescoding**")
 
 # -----------------------------
 # Load Excel
@@ -966,6 +1225,428 @@ def remove_total_rows(df, columns):
 
     return clean_df
 
+
+
+# -----------------------------
+# Automated insight engine
+# -----------------------------
+
+def fmt_money(value):
+    try:
+        return f"Rs {float(value):,.2f}B"
+    except Exception:
+        return "Not available"
+
+
+def fmt_pct(value):
+    try:
+        return f"{float(value):,.1f}%"
+    except Exception:
+        return "Not available"
+
+
+def clean_display(value):
+    return html.escape(str(value))
+
+
+def trend_monthly_signal(monthly_data_path):
+    """Create a small trend signal from cumulative monthly customs files."""
+    try:
+        if not monthly_data_path.exists():
+            return None
+
+        trend_files = sorted(monthly_data_path.glob("*.xlsx"))
+        if len(trend_files) < 2:
+            return None
+
+        rows = []
+        for file_path in trend_files:
+            try:
+                rows.append(extract_trade_snapshot_from_file(file_path, file_path.name))
+            except Exception:
+                continue
+
+        if len(rows) < 2:
+            return None
+
+        trend_df = pd.DataFrame(rows).sort_values("File").reset_index(drop=True)
+
+        latest = trend_df.iloc[-1]
+        previous = trend_df.iloc[-2]
+
+        monthly_import_change = latest["Imports_Billion"] - previous["Imports_Billion"]
+        monthly_export_change = latest["Exports_Billion"] - previous["Exports_Billion"]
+        monthly_deficit_change = latest["Trade_Deficit_Billion"] - previous["Trade_Deficit_Billion"]
+
+        return {
+            "latest_period": latest["Period"],
+            "previous_period": previous["Period"],
+            "monthly_import_change": monthly_import_change,
+            "monthly_export_change": monthly_export_change,
+            "monthly_deficit_change": monthly_deficit_change,
+            "direction": "widened" if monthly_deficit_change > 0 else "narrowed"
+        }
+
+    except Exception:
+        return None
+
+
+def build_automated_insights(
+    imports_total,
+    exports_total,
+    deficit_total,
+    total_trade,
+    import_export_ratio,
+    top_import_product,
+    top_import_value,
+    top_export_product,
+    top_export_value,
+    top_import_country,
+    top_export_country,
+    top_customs_office,
+    top_customs_value,
+    top5_route_share,
+    imports,
+    exports,
+    countries,
+    monthly_data_path
+):
+    """Rule-based trade analyst. No external API is used."""
+    insights = {}
+
+    deficit_share = (deficit_total / total_trade * 100) if total_trade else 0
+    top_import_share = (top_import_value / imports_total * 100) if imports_total else 0
+    top_export_share = (top_export_value / exports_total * 100) if exports_total else 0
+
+    trend_signal = trend_monthly_signal(monthly_data_path)
+
+    # Product concentration
+    top5_import_share = 0
+    top5_export_share = 0
+    try:
+        top5_import_share = imports.sort_values("Imports_Billion", ascending=False).head(5)["Imports_Billion"].sum() / imports_total * 100
+    except Exception:
+        top5_import_share = 0
+    try:
+        top5_export_share = exports.sort_values("Exports_Billion", ascending=False).head(5)["Exports_Billion"].sum() / exports_total * 100
+    except Exception:
+        top5_export_share = 0
+
+    insights["cards"] = [
+        {
+            "badge": "External position",
+            "title": "Imports still dominate the trade structure",
+            "body": (
+                f"Imports are around {import_export_ratio:,.1f} times larger than exports. "
+                f"The trade deficit equals about {deficit_share:,.1f}% of total foreign trade in the selected period."
+            )
+        },
+        {
+            "badge": "Product signal",
+            "title": "Top products deserve deeper tracking",
+            "body": (
+                f"The leading import item is {top_import_product}, worth {fmt_money(top_import_value)} "
+                f"or about {top_import_share:,.1f}% of total imports. The leading export item is {top_export_product}, "
+                f"worth {fmt_money(top_export_value)}."
+            )
+        },
+        {
+            "badge": "Market concentration",
+            "title": "Partner dependence remains important",
+            "body": (
+                f"The biggest import partner is {top_import_country}, while the biggest export destination is {top_export_country}. "
+                "This is useful for country-risk, sourcing, and market-access analysis."
+            )
+        },
+        {
+            "badge": "Logistics",
+            "title": "Customs route pressure is visible",
+            "body": (
+                f"The largest customs route is {top_customs_office}, handling around {fmt_money(top_customs_value)} in imports. "
+                f"The top five routes together account for about {top5_route_share:,.1f}% of import value."
+            )
+        },
+    ]
+
+    if trend_signal:
+        insights["cards"].insert(1, {
+            "badge": "Latest movement",
+            "title": f"Trade deficit {trend_signal['direction']} in the latest monthly update",
+            "body": (
+                f"From {trend_signal['previous_period']} to {trend_signal['latest_period']}, cumulative imports changed by "
+                f"{fmt_money(trend_signal['monthly_import_change'])}, exports changed by {fmt_money(trend_signal['monthly_export_change'])}, "
+                f"and the trade deficit changed by {fmt_money(trend_signal['monthly_deficit_change'])}."
+            )
+        })
+
+    insights["opportunities"] = [
+        f"Study high-import products such as {top_import_product} for import-substitution, distribution, and sourcing opportunities.",
+        f"Track export leaders such as {top_export_product} to understand where Nepal already has export momentum.",
+        f"Use partner-country data around {top_import_country} and {top_export_country} for market-entry and trade-finance research.",
+        "Use customs route data to identify logistics concentration and border-point dependence."
+    ]
+
+    insights["risks"] = [
+        f"The import-export gap remains large: imports are {import_export_ratio:,.1f} times exports.",
+        f"Top import products and routes may create concentration risk if supply chains are disrupted.",
+        f"Large dependence on major partner countries can expose Nepal to external price, policy, and logistics shocks.",
+        "Some opportunity signals are screening indicators only; product-level feasibility needs separate research."
+    ]
+
+    trend_sentence = ""
+    if trend_signal:
+        trend_sentence = (
+            f"\nLatest monthly movement: from {trend_signal['previous_period']} to {trend_signal['latest_period']}, "
+            f"the trade deficit {trend_signal['direction']} by {fmt_money(abs(trend_signal['monthly_deficit_change']))}."
+        )
+
+    insights["brief_text"] = f"""TradePulse Nepal — Automated Trade Analyst Brief
+
+Current period: {current_col}
+Source: Department of Customs monthly foreign trade data
+Unit: Rs. billion, converted from source values in Rs. thousands
+
+1. Market Snapshot
+Nepal recorded imports of {fmt_money(imports_total)} and exports of {fmt_money(exports_total)}.
+The trade deficit stood at {fmt_money(deficit_total)}, with imports around {import_export_ratio:,.1f} times larger than exports.
+The deficit is equal to about {deficit_share:,.1f}% of total foreign trade.{trend_sentence}
+
+2. Product Signal
+The leading imported product was {top_import_product}, worth {fmt_money(top_import_value)}.
+The leading exported product was {top_export_product}, worth {fmt_money(top_export_value)}.
+The top five import products represent about {top5_import_share:,.1f}% of total imports, while the top five export products represent about {top5_export_share:,.1f}% of total exports.
+
+3. Country and Route Signal
+The largest import partner was {top_import_country}.
+The largest export destination was {top_export_country}.
+The most important customs office by import value was {top_customs_office}, handling around {fmt_money(top_customs_value)}.
+
+4. Analyst Read
+The data shows Nepal's continued import dependence and a large trade deficit. The most useful next analysis is to track which products are rising month by month, whether export growth is broad-based or concentrated, and where high-import products create practical business or policy research opportunities.
+"""
+
+    return insights
+
+
+
+
+def ask_tradepulse_rule_based(
+    question,
+    imports_total,
+    exports_total,
+    deficit_total,
+    total_trade,
+    import_export_ratio,
+    top_import_product,
+    top_import_value,
+    top_export_product,
+    top_export_value,
+    top_import_country,
+    top_export_country,
+    top_customs_office,
+    top_customs_value,
+    top5_route_share,
+    imports,
+    exports,
+    countries,
+    customs,
+    monthly_data_path
+):
+    """Free rule-based Ask TradePulse assistant. No paid AI API is used."""
+    q = str(question or "").lower().strip()
+
+    if not q:
+        return "Ask a question about imports, exports, trade deficit, products, countries, customs routes, opportunities, or risks."
+
+    trend_summary = build_trend_summary_for_report(monthly_data_path)
+    deficit_share = (deficit_total / total_trade * 100) if total_trade else 0
+
+    top5_imports = imports.sort_values("Imports_Billion", ascending=False).head(5)
+    top5_exports = exports.sort_values("Exports_Billion", ascending=False).head(5)
+    top5_import_countries = countries.sort_values("Imports_Billion", ascending=False).head(5)
+    top5_export_countries = countries.sort_values("Exports_Billion", ascending=False).head(5)
+    top5_customs = customs.sort_values("Imports_Billion", ascending=False).head(5)
+
+    def product_lines(df, value_col):
+        lines = []
+        for idx, row in enumerate(df.itertuples(index=False), start=1):
+            description = getattr(row, "Description", "Unknown")
+            value = getattr(row, value_col, 0)
+            lines.append(f"{idx}. {description} — {fmt_money(value)}")
+        return "\n".join(lines)
+
+    def country_lines(df, value_col):
+        lines = []
+        for idx, row in enumerate(df.itertuples(index=False), start=1):
+            country = getattr(row, "Partner Countries", "Unknown")
+            value = getattr(row, value_col, 0)
+            lines.append(f"{idx}. {country} — {fmt_money(value)}")
+        return "\n".join(lines)
+
+    def route_lines(df):
+        lines = []
+        for idx, row in enumerate(df.itertuples(index=False), start=1):
+            route = getattr(row, "Customs", "Unknown")
+            value = getattr(row, "Imports_Billion", 0)
+            lines.append(f"{idx}. {route} — {fmt_money(value)}")
+        return "\n".join(lines)
+
+    def analyst_answer(title, direct, why=None, signal=None, caution=None):
+        parts = [f"### {title}", f"**Direct answer**\n\n{direct}"]
+        if why:
+            parts.append(f"**Why it matters**\n\n{why}")
+        if signal:
+            parts.append(f"**Data signal**\n\n{signal}")
+        if caution:
+            parts.append(f"**Caution**\n\n{caution}")
+        return "\n\n".join(parts)
+
+    if any(word in q for word in ["changed", "latest", "movement", "month", "monthly", "jestha", "baisakh"]):
+        if trend_summary:
+            return analyst_answer(
+                "Latest movement",
+                f"From **{trend_summary['previous_period']}** to **{trend_summary['latest_period']}**, cumulative imports changed by **{fmt_money(trend_summary['import_change'])}**, exports changed by **{fmt_money(trend_summary['export_change'])}**, and the trade deficit changed by **{fmt_money(trend_summary['deficit_change'])}**.",
+                "This shows whether the latest month added more pressure through imports, helped through exports, or changed the external balance.",
+                trend_summary['movement_note'],
+                "This is based on cumulative monthly Customs Excel files in the monthly_data folder."
+            )
+        return "Monthly trend data is not available yet. Add monthly Excel files inside the `monthly_data` folder to enable latest movement answers."
+
+    if any(word in q for word in ["increase", "increased", "rising", "rose", "growth", "grew"]):
+        if trend_summary and trend_summary.get("top_rising_import"):
+            answer = (
+                f"**Strongest product movement**\n\n"
+                f"The strongest import increase in the latest monthly movement came from **{trend_summary['top_rising_import']}**, "
+                f"with a change of **{fmt_money(trend_summary['top_rising_import_change'])}**.\n\n"
+            )
+            if trend_summary.get("top_rising_export"):
+                answer += (
+                    f"The strongest export increase came from **{trend_summary['top_rising_export']}**, "
+                    f"with a change of **{fmt_money(trend_summary['top_rising_export_change'])}**."
+                )
+            return analyst_answer(
+                "Strongest product movement",
+                answer.replace("**Strongest product movement**\n\n", ""),
+                "Product movement helps identify where demand, prices, sourcing, or export momentum may be changing fastest.",
+                "Use this as a first screening signal before checking price, volume, seasonality, and policy context.",
+                "This answer uses month-to-month changes from cumulative files, so unusual one-off entries should be checked manually."
+            )
+        return "I could not detect product-level monthly movement yet. Check that monthly Excel files are available inside `monthly_data`."
+
+    if "deficit" in q or "gap" in q:
+        return analyst_answer(
+            "Trade deficit",
+            f"The trade deficit in the selected period is **{fmt_money(deficit_total)}**.",
+            "A large deficit means imports are much higher than exports, which can create pressure on foreign exchange, domestic production, and external stability.",
+            f"Imports are around **{import_export_ratio:,.1f} times** larger than exports. The deficit equals about **{deficit_share:,.1f}%** of total foreign trade.",
+            "This is a descriptive dashboard signal, not a complete macroeconomic diagnosis."
+        )
+
+    if "ratio" in q or "import export" in q or "import/export" in q:
+        return analyst_answer(
+            "Import-export ratio",
+            f"Imports are around **{import_export_ratio:,.1f} times** larger than exports in the selected period.",
+            "This gives a quick view of how import-dominated Nepal's trade structure is.",
+            f"Imports: **{fmt_money(imports_total)}**. Exports: **{fmt_money(exports_total)}**.",
+            "Use the ratio with product and country details for a fuller interpretation."
+        )
+
+    if ("import" in q and "product" in q) or "importing most" in q or "import most" in q or "nepal importing" in q or "what is nepal importing" in q:
+        return analyst_answer(
+            "Top import products",
+            f"The leading import product is **{top_import_product}**, worth **{fmt_money(top_import_value)}**.",
+            "Large import products are useful for studying domestic demand, supply dependence, distribution markets, and possible import-substitution areas.",
+            product_lines(top5_imports, 'Imports_Billion'),
+            "High import value alone does not mean an easy business opportunity; check margins, regulation, supply chains, and competition."
+        )
+
+    if ("export" in q and "product" in q) or "exporting most" in q or "export most" in q or "nepal exporting" in q or "what is nepal exporting" in q:
+        return analyst_answer(
+            "Top export products",
+            f"The leading export product is **{top_export_product}**, worth **{fmt_money(top_export_value)}**.",
+            "Export leaders show where Nepal already has some market traction, but concentration can also create vulnerability.",
+            product_lines(top5_exports, 'Exports_Billion'),
+            "Export value should be checked with destination markets, product margins, and policy incentives."
+        )
+
+    if "country" in q or "partner" in q or "india" in q or "china" in q:
+        if "export" in q:
+            return analyst_answer(
+                "Export destinations",
+                f"The biggest export destination is **{top_export_country}**.",
+                "Destination concentration matters because exports can become vulnerable to demand, policy, or border changes in one market.",
+                country_lines(top5_export_countries, 'Exports_Billion'),
+                "This shows value concentration, not profitability or competitiveness."
+            )
+        return analyst_answer(
+            "Import partners",
+            f"The biggest import partner is **{top_import_country}**.",
+            "Partner concentration shows where Nepal's sourcing dependence is strongest.",
+            country_lines(top5_import_countries, 'Imports_Billion'),
+            "This is based on Customs value data and does not explain the reason for dependence by itself."
+        )
+
+    if "customs" in q or "route" in q or "border" in q or "birgunj" in q or "handles most trade" in q or "office handles" in q:
+        return analyst_answer(
+            "Customs route signal",
+            f"The largest customs route by import value is **{top_customs_office}**, handling around **{fmt_money(top_customs_value)}**.",
+            "Route concentration matters for logistics, border pressure, transport planning, and supply-chain risk.",
+            f"The top five routes together account for about **{top5_route_share:,.1f}%** of import value.\n\n{route_lines(top5_customs)}",
+            "Customs value does not directly measure congestion, delay, or transport cost."
+        )
+
+    if "opportunity" in q or "business" in q or "substitution" in q or "market" in q:
+        return analyst_answer(
+            "Opportunity read",
+            f"The clearest opportunity areas are high-import products such as **{top_import_product}**, export leaders such as **{top_export_product}**, partner dependence around **{top_import_country}**, and logistics concentration around **{top_customs_office}**.",
+            "High import value can point to strong domestic demand or sourcing dependence. Export leaders can point to existing market traction. Route and country concentration can reveal logistics or diversification opportunities.",
+            f"Top import product: **{top_import_product}** ({fmt_money(top_import_value)}). Top export product: **{top_export_product}** ({fmt_money(top_export_value)}). Biggest import partner: **{top_import_country}**. Main customs route: **{top_customs_office}**.",
+            "This is only a screening signal, not investment advice. A real business decision needs price, volume, regulation, competition, and field validation."
+        )
+
+    if "risk" in q or "vulnerable" in q or "vulnerability" in q or "dependence" in q or "dependent" in q:
+        return analyst_answer(
+            "Risk read",
+            f"The main risk is Nepal's large import dependence: imports are **{import_export_ratio:,.1f} times** exports.",
+            "Heavy import dependence can expose the economy to foreign exchange pressure, global price shocks, border disruptions, and partner-country policy changes.",
+            f"Trade deficit: **{fmt_money(deficit_total)}**. Biggest import partner: **{top_import_country}**. Largest customs route: **{top_customs_office}**.",
+            "This is a risk-screening summary, not a full macroeconomic stress test."
+        )
+
+    if "media" in q or "story" in q or "article" in q or "headline" in q or "news" in q:
+        return analyst_answer(
+            "Media story ideas",
+            f"A strong story angle is: **Nepal’s trade gap remains large as imports are led by {top_import_product}, while exports remain concentrated around {top_export_product}.**",
+            "This is useful for journalists, students, and researchers because it turns raw Customs data into a clear economic story.",
+            f"Possible angles:\n1. Import dependence around **{top_import_product}**.\n2. Export concentration around **{top_export_product}**.\n3. Partner dependence around **{top_import_country}**.\n4. Route concentration around **{top_customs_office}**.\n5. The wider trade deficit of **{fmt_money(deficit_total)}**.",
+            "This gives story ideas only. Before publishing, verify product details, policy context, prices, and expert comments."
+        )
+
+    if "brief" in q or "report" in q or "note" in q:
+        return analyst_answer(
+            "Short trade brief",
+            f"Nepal recorded imports of **{fmt_money(imports_total)}**, exports of **{fmt_money(exports_total)}**, and a trade deficit of **{fmt_money(deficit_total)}** in the selected Customs dataset.",
+            "The main analytical message is that imports continue to dominate the trade structure, while exports remain much smaller and concentrated in selected products.",
+            f"Leading import: **{top_import_product}**. Leading export: **{top_export_product}**. Biggest import partner: **{top_import_country}**. Main customs route: **{top_customs_office}**. Import-export ratio: **{import_export_ratio:,.1f}x**.",
+            "This is an automated brief generated from dashboard data. It should be reviewed before use in formal reports or media articles."
+        )
+
+    if "summary" in q or "explain" in q or "overview" in q or "so what" in q:
+        return analyst_answer(
+            "TradePulse summary",
+            f"Nepal's selected-period trade data shows imports of **{fmt_money(imports_total)}**, exports of **{fmt_money(exports_total)}**, and a trade deficit of **{fmt_money(deficit_total)}**.",
+            "The main story is that imports still dominate exports, while product, country, and customs-route concentration reveal where deeper analysis should focus.",
+            f"Import-export ratio: **{import_export_ratio:,.1f}x**. Leading import: **{top_import_product}**. Leading export: **{top_export_product}**. Biggest import partner: **{top_import_country}**. Main customs route: **{top_customs_office}**.",
+            "This summary is generated from the selected Customs dataset loaded in the dashboard."
+        )
+
+    return (
+        f"I can answer this from the dashboard data, but I may need a more specific question.\n\n"
+        f"Try asking: **What changed in the latest month?**, **Which product increased the most?**, "
+        f"**What are the top import products?**, **Which country dominates imports?**, "
+        f"**What is the trade deficit?**, or **What are the main risks?**"
+    )
+
 # -----------------------------
 # Prepare data
 # -----------------------------
@@ -1074,6 +1755,27 @@ top_customs_office = top_customs.iloc[0]["Customs"]
 top_customs_value = top_customs.iloc[0]["Imports_Billion"]
 top5_route_share = top_customs["Import_Share"].head(5).sum()
 
+automated_insights = build_automated_insights(
+    imports_total=imports_total,
+    exports_total=exports_total,
+    deficit_total=deficit_total,
+    total_trade=total_trade,
+    import_export_ratio=import_export_ratio,
+    top_import_product=top_import_product,
+    top_import_value=top_import_value,
+    top_export_product=top_export_product,
+    top_export_value=top_export_value,
+    top_import_country=top_import_country,
+    top_export_country=top_export_country,
+    top_customs_office=top_customs_office,
+    top_customs_value=top_customs_value,
+    top5_route_share=top5_route_share,
+    imports=imports,
+    exports=exports,
+    countries=countries,
+    monthly_data_path=monthly_data_path
+)
+
 # -----------------------------
 # Hero section
 # -----------------------------
@@ -1082,9 +1784,9 @@ st.markdown(
     """
     <div class="hero">
         <div class="pill">Nepal Trade Intelligence · Customs Data</div>
-        <div class="hero-title">Market Movement AI Dashboard</div>
+        <div class="hero-title">TradePulse Nepal</div>
         <div class="hero-subtitle">
-            A professional dashboard that converts monthly Department of Customs data into market trends,
+            A free public trade-intelligence dashboard that converts monthly Department of Customs data into market trends,
             product movement, country dependence, customs route signals, business opportunities, and policy risks.
         </div>
     </div>
@@ -1110,14 +1812,30 @@ with k3:
 with k4:
     kpi_card("Import / Export Ratio", f"{import_export_ratio:,.1f}x", "Imports compared to exports")
 
-st.caption(f"Current period used: {current_col}. Source values are in Rs. thousands and shown here in Rs. billion.")
+st.markdown("### Data Status")
+
+ds1, ds2, ds3, ds4 = st.columns(4)
+with ds1:
+    st.metric("Dashboard source", source_type_label)
+with ds2:
+    st.metric("Current period", str(current_col))
+with ds3:
+    st.metric("Latest monthly file", latest_month_label)
+with ds4:
+    st.metric("Monthly files loaded", monthly_files_count)
+
+st.caption(
+    f"Using `{source_file_label}` for the main dashboard. "
+    f"Source values are in Rs. thousands and shown here in Rs. billion. "
+    "Ask TradePulse and Insights use only the processed Customs data available in this app."
+)
 
 # -----------------------------
 # Tabs
 # -----------------------------
 
-overview_tab, product_tab, opportunity_tab, country_tab, route_tab, trend_tab, about_tab, insight_tab = st.tabs(
-    ["Overview", "Products", "Opportunity Finder", "Countries", "Customs Routes", "Trends", "About / Methodology", "Insights"]
+overview_tab, product_tab, opportunity_tab, country_tab, route_tab, trend_tab, about_tab, insight_tab, ask_tab = st.tabs(
+    ["Overview", "Products", "Opportunity Finder", "Countries", "Customs Routes", "Trends", "About / Methodology", "Insights", "Ask TradePulse"]
 )
 
 # -----------------------------
@@ -2359,6 +3077,21 @@ with about_tab:
         unsafe_allow_html=True
     )
 
+    st.markdown("### Data Status and Trust Notes")
+
+    dsn1, dsn2, dsn3 = st.columns(3)
+    with dsn1:
+        st.metric("Current period", str(current_col))
+    with dsn2:
+        st.metric("Monthly files loaded", monthly_files_count)
+    with dsn3:
+        st.metric("Latest monthly file", latest_month_label)
+
+    st.info(
+        "TradePulse Nepal is a free public-data project. It uses Department of Customs workbooks available to the app. "
+        "The dashboard does not modify official data; it cleans, converts, ranks, and explains the numbers for easier reading."
+    )
+
     m1, m2 = st.columns(2)
 
     with m1:
@@ -2369,7 +3102,7 @@ with about_tab:
                 <p><b>Primary source:</b> Department of Customs, Government of Nepal.</p>
                 <p><b>Dataset type:</b> Monthly foreign trade statistics.</p>
                 <p><b>Coverage:</b> Imports, exports, partner countries, commodities, HS codes, customs offices, quantity, value, and revenue.</p>
-                <p><b>Current dashboard period:</b> Based on the uploaded customs Excel workbook.</p>
+                <p><b>Current dashboard period:</b> shown in the Data Status section on top of the dashboard.</p>
             </div>
             """,
             unsafe_allow_html=True
@@ -2439,6 +3172,7 @@ with about_tab:
                 <li>Import-substitution potential requires additional data on domestic production, demand, costs, technology, and regulation.</li>
                 <li>AI-style insights are generated only from available dashboard numbers and should be verified before publication.</li>
                 <li>This dashboard is for research, business intelligence, and policy discussion — not financial or investment advice.</li>
+                <li>Users should verify figures with the original Department of Customs workbook before citing them formally.</li>
             </ul>
         </div>
         """,
@@ -2450,6 +3184,22 @@ with about_tab:
     st.code(
         "TradePulse Nepal Dashboard. Based on monthly foreign trade statistics published by the Department of Customs, Government of Nepal.",
         language="text"
+    )
+
+    st.markdown("### Feedback and Contact")
+
+    st.markdown(
+        '<div class="feedback-card">'
+        '<h3>Help improve TradePulse Nepal</h3>'
+        '<p>TradePulse Nepal is a free public-data project. Feedback is welcome, especially if you find a data issue, broken chart, confusing label, missing feature, or a useful trade question the dashboard should answer.</p>'
+        '<div class="contact-grid">'
+        '<div class="contact-item"><b>Email</b>utsavkphuyal@gmail.com</div>'
+        '<div class="contact-item"><b>LinkedIn</b>linkedin.com/in/utsav-phuyal</div>'
+        '<div class="contact-item"><b>GitHub</b>github.com/utsavhatescoding</div>'
+        '</div>'
+        '<p><b>Suggested feedback:</b> missing products, wrong labels, monthly data update issues, UI problems, or questions Ask TradePulse should answer better.</p>'
+        '</div>',
+        unsafe_allow_html=True
     )
 
     st.markdown("---")
@@ -2465,79 +3215,75 @@ with about_tab:
             st.info("Upload your photo as utsav.png in the same folder as app.py to show it here.")
 
     with dev_col2:
+        st.markdown("### Utsav Phuyal")
+        st.markdown("**Developer & Researcher, TradePulse Nepal**")
+
+        st.write(
+            "I am a business and economics graduate student interested in data analytics, "
+            "economic research, trade intelligence, financial stability, and AI-powered "
+            "public-data tools."
+        )
+
+        st.write(
+            "I built TradePulse Nepal to make Nepal's Department of Customs data easier "
+            "to understand through dashboards, product-level analysis, country intelligence, "
+            "opportunity signals, and automated trade briefs."
+        )
+
+        st.write(
+            "The goal is to turn raw public data into clear market insights, business signals, "
+            "policy risks, and report-ready analysis."
+        )
+
+        st.markdown("**Contact**")
         st.markdown(
-            """
-            <div class="section-card">
-                <h3>Utsav Phuyal</h3>
-                <p><b>Developer & Researcher, TradePulse Nepal</b></p>
-
-                <p>
-                I am a business and economics graduate student interested in data analytics,
-                economic research, trade intelligence, financial stability, and AI-powered
-                public-data tools.
-                </p>
-
-                <p>
-                I built TradePulse Nepal to make Nepal's Department of Customs data easier
-                to understand through dashboards, product-level analysis, country intelligence,
-                opportunity signals, and automated trade briefs.
-                </p>
-
-                <p>
-                The goal is to turn raw public data into clear market insights, business signals,
-                policy risks, and report-ready analysis.
-                </p>
-
-                <p>
-                <b>Contact</b><br>
-                Email: utsavkphuyal@gmail.com<br>
-                LinkedIn: linkedin.com/in/utsav-phuyal<br>
-                GitHub: github.com/utsavhatescoding
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True
+            "Email: utsavkphuyal@gmail.com  \n"
+            "LinkedIn: linkedin.com/in/utsav-phuyal  \n"
+            "GitHub: github.com/utsavhatescoding"
         )
 # -----------------------------
 # Insights tab
 # -----------------------------
 
 with insight_tab:
-    st.subheader("AI-Style Trade Brief")
+    st.subheader("Automated Trade Analyst")
 
-    brief_text = f"""Market Movement AI Dashboard — Monthly Trade Brief
+    st.markdown(
+        """
+        <div class="insight-card">
+            <b>What changed in this version:</b> this section now works like a rule-based analyst.
+            It reads the dashboard's calculated numbers and turns them into simple explanations, opportunity signals,
+            and risk signals. No paid AI API is used yet.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-Current period: {current_col}
-Source: Department of Customs monthly foreign trade data
-Unit: Rs. billion, converted from source values in Rs. thousands
+    # Build HTML with no leading spaces. Streamlit/Markdown can treat indented
+    # HTML as a code block, which makes raw <div> text appear on screen.
+    card_parts = ['<div class="analyst-grid">']
+    for item in automated_insights["cards"]:
+        card_parts.append(
+            f'<div class="analyst-card">'
+            f'<div class="insight-badge">{clean_display(item["badge"])}</div>'
+            f'<h4>{clean_display(item["title"])}</h4>'
+            f'<p>{clean_display(item["body"])}</p>'
+            f'</div>'
+        )
+    card_parts.append('</div>')
+    card_html = "".join(card_parts)
 
-1. Market Snapshot
-Nepal recorded total imports of Rs {imports_total:,.2f} billion and total exports of Rs {exports_total:,.2f} billion.
-The trade deficit stood at Rs {deficit_total:,.2f} billion.
-Imports were around {import_export_ratio:,.1f} times larger than exports.
+    st.markdown(card_html, unsafe_allow_html=True)
 
-2. Product Movement
-The leading imported product was {top_import_product}, with imports worth around Rs {top_import_value:,.2f} billion.
-The leading exported product was {top_export_product}, with exports worth around Rs {top_export_value:,.2f} billion.
+    brief_text = automated_insights["brief_text"]
+    brief_html = clean_display(brief_text).replace("\n", "<br>")
 
-3. Country Movement
-The largest import partner was {top_import_country}.
-The largest export destination was {top_export_country}.
-
-4. Customs Route Movement
-The most important customs office by import value was {top_customs_office}, handling around Rs {top_customs_value:,.2f} billion.
-
-5. Interpretation
-The data shows Nepal's continued import dependence and a large trade deficit. High-import products may deserve deeper study for import-substitution, sourcing, trade finance, or policy analysis.
-"""
-
-    brief_html = brief_text.replace("\n", "<br>")
+    st.markdown("### Executive Brief")
 
     st.markdown(
         f"""
-        <div class="insight-card">
-            <h3>Monthly Trade Brief</h3>
-            <p>{brief_html}</p>
+        <div class="executive-brief">
+            {brief_html}
         </div>
         """,
         unsafe_allow_html=True
@@ -2546,32 +3292,30 @@ The data shows Nepal's continued import dependence and a large trade deficit. Hi
     i1, i2 = st.columns(2)
 
     with i1:
+        opportunity_items = "".join(
+            [f"<li>{clean_display(item)}</li>" for item in automated_insights["opportunities"]]
+        )
+
         st.markdown(
             f"""
             <div class="opportunity-card">
-                <h3>Business Opportunity Signals</h3>
-                <ul>
-                    <li>High import products can be studied for import-substitution possibilities.</li>
-                    <li><b>{top_import_product}</b> is a major import item and deserves deeper product-level analysis.</li>
-                    <li>Export product <b>{top_export_product}</b> can be studied for export expansion.</li>
-                    <li>Large supplier countries like <b>{top_import_country}</b> may reveal sourcing and trade-finance opportunities.</li>
-                </ul>
+                <h3>Opportunity Signals</h3>
+                <ul>{opportunity_items}</ul>
             </div>
             """,
             unsafe_allow_html=True
         )
 
     with i2:
+        risk_items = "".join(
+            [f"<li>{clean_display(item)}</li>" for item in automated_insights["risks"]]
+        )
+
         st.markdown(
             f"""
             <div class="risk-card">
-                <h3>Policy Risk Signals</h3>
-                <ul>
-                    <li>The trade deficit remains large compared with export earnings.</li>
-                    <li>Imports are around <b>{import_export_ratio:,.1f} times</b> larger than exports.</li>
-                    <li>Heavy dependence on major partner countries can create external vulnerability.</li>
-                    <li>Route concentration through <b>{top_customs_office}</b> can create logistics pressure.</li>
-                </ul>
+                <h3>Risk Signals</h3>
+                <ul>{risk_items}</ul>
             </div>
             """,
             unsafe_allow_html=True
@@ -2579,15 +3323,15 @@ The data shows Nepal's continued import dependence and a large trade deficit. Hi
 
     st.markdown("### Media / Research Story Ideas")
 
-    st.markdown(
-        """
-        1. Why Nepal's imports are still far larger than exports.  
-        2. Which products are driving Nepal's import bill?  
-        3. What Nepal exports most — and why the export basket remains narrow.  
-        4. How dependent is Nepal on major customs routes?  
-        5. Can high-import products create domestic production opportunities?  
-        """
-    )
+    story_ideas = [
+        f"Why Nepal's imports are still around {import_export_ratio:,.1f} times larger than exports.",
+        f"What {top_import_product} tells us about Nepal's import demand.",
+        f"How {top_export_product} became a leading export item in the current period.",
+        f"What Nepal's dependence on {top_import_country} means for trade vulnerability.",
+        f"Why customs route concentration around {top_customs_office} matters for logistics."
+    ]
+
+    st.markdown("\n".join([f"{idx + 1}. {idea}" for idx, idea in enumerate(story_ideas)]))
 
     st.markdown("---")
     st.markdown("## Download Report")
@@ -2644,3 +3388,167 @@ The data shows Nepal's continued import dependence and a large trade deficit. Hi
         )
 
     st.caption("PDF button is in this Download Report section inside the Insights tab.")
+
+
+# -----------------------------
+# Ask TradePulse tab
+# -----------------------------
+
+with ask_tab:
+    st.subheader("Ask TradePulse")
+
+    st.info(
+        "This is a free rule-based question assistant. It answers only from the processed Customs data in this dashboard. "
+        "It does not use the internet, paid AI, or forecasting."
+    )
+
+    suggested_questions = [
+        "What changed in the latest month?",
+        "Where are the business opportunities?",
+        "What are the main trade risks?",
+        "Which country dominates imports?",
+        "Which product increased the most?",
+        "What are the top import products?",
+        "What are the top export products?",
+        "What is the trade deficit?",
+        "Which customs route is most important?",
+        "Give me a short trade brief.",
+        "Give me a media story idea.",
+        "What is Nepal importing most?",
+        "What is Nepal exporting most?"
+    ]
+
+    if "ask_tradepulse_question_text" not in st.session_state:
+        st.session_state["ask_tradepulse_question_text"] = "What changed in the latest month?"
+
+    if "ask_tradepulse_answer" not in st.session_state:
+        st.session_state["ask_tradepulse_answer"] = ""
+
+    st.markdown("#### Suggested questions")
+    st.caption("Click one question, then press Ask TradePulse.")
+
+    suggestion_cols = st.columns(3)
+    for i, q_text in enumerate(suggested_questions):
+        with suggestion_cols[i % 3]:
+            if st.button(q_text, key=f"ask_suggested_question_{i}", use_container_width=True):
+                st.session_state["ask_tradepulse_question_text"] = q_text
+                st.session_state["ask_tradepulse_answer"] = ""
+                st.rerun()
+
+    st.markdown("---")
+
+    user_question = st.text_area(
+        "Ask a question",
+        height=100,
+        placeholder="Example: What changed in the latest month?",
+        key="ask_tradepulse_question_text"
+    )
+
+    if st.button("Ask TradePulse", type="primary", key="ask_tradepulse_button"):
+        answer = ask_tradepulse_rule_based(
+            question=user_question,
+            imports_total=imports_total,
+            exports_total=exports_total,
+            deficit_total=deficit_total,
+            total_trade=total_trade,
+            import_export_ratio=import_export_ratio,
+            top_import_product=top_import_product,
+            top_import_value=top_import_value,
+            top_export_product=top_export_product,
+            top_export_value=top_export_value,
+            top_import_country=top_import_country,
+            top_export_country=top_export_country,
+            top_customs_office=top_customs_office,
+            top_customs_value=top_customs_value,
+            top5_route_share=top5_route_share,
+            imports=imports,
+            exports=exports,
+            countries=countries,
+            customs=customs,
+            monthly_data_path=Path(__file__).parent / "monthly_data"
+        )
+        st.session_state["ask_tradepulse_answer"] = answer
+
+    if st.session_state.get("ask_tradepulse_answer"):
+        st.markdown("### Answer")
+        st.markdown(st.session_state["ask_tradepulse_answer"])
+
+        answer_text = st.session_state["ask_tradepulse_answer"]
+        question_text = st.session_state.get("ask_tradepulse_question_text", "")
+        download_text = f"TradePulse Nepal - Ask TradePulse Answer\n\nQuestion:\n{question_text}\n\nAnswer:\n{answer_text}\n"
+
+        a1, a2 = st.columns([1, 1])
+        with a1:
+            st.download_button(
+                label="Download answer as TXT",
+                data=download_text.encode("utf-8"),
+                file_name="ask_tradepulse_answer.txt",
+                mime="text/plain",
+                key="download_ask_tradepulse_answer"
+            )
+        with a2:
+            with st.expander("Copy-ready text"):
+                st.text_area(
+                    "Copy this answer",
+                    value=download_text,
+                    height=220,
+                    key="copy_ready_ask_tradepulse_answer"
+                )
+
+    st.markdown("---")
+    st.markdown("### What this version can answer")
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.markdown(
+            """
+            **Market**
+
+            - Trade deficit
+            - Import-export ratio
+            - Latest movement
+            """
+        )
+
+    with c2:
+        st.markdown(
+            """
+            **Products & countries**
+
+            - Top imports
+            - Top exports
+            - Import/export partners
+            """
+        )
+
+    with c3:
+        st.markdown(
+            """
+            **Signals**
+
+            - Risks
+            - Opportunities
+            - Customs routes
+            """
+        )
+
+    st.caption(
+        "Later, this tab can be upgraded into a real AI chat interface using an API key. "
+        "For now, it is intentionally simple, free, and safer."
+    )
+
+
+
+# -----------------------------
+# Footer
+# -----------------------------
+
+st.markdown(
+    '<div class="tp-footer">'
+    '<b>TradePulse Nepal</b> · Free public data project · Built by Utsav Phuyal<br>'
+    'Data source: Department of Customs, Government of Nepal · Values are converted for easier reading and should be verified with the original workbook before formal citation.<br>'
+    'Contact: utsavkphuyal@gmail.com · GitHub: github.com/utsavhatescoding'
+    '</div>',
+    unsafe_allow_html=True
+)

@@ -2,43 +2,45 @@
 
 **From customs data to market intelligence.**
 
-TradePulse Nepal is a web-based trade intelligence dashboard that converts Nepal’s monthly Department of Customs data into clear, interactive, and report-ready insights.
+TradePulse Nepal is a free public-data dashboard that turns Nepal's Department of Customs monthly foreign trade workbooks into clear, interactive, and report-ready trade intelligence.
 
 Live app: https://tradepulsenepal.streamlit.app
 
 ---
 
-## Overview
+## What it does
 
-Nepal publishes detailed import-export data every month, but the raw Excel files are often difficult to interpret directly. TradePulse Nepal makes this public data easier to understand by transforming customs data into dashboards, charts, product rankings, country-level analysis, opportunity signals, policy risks, and downloadable trade briefs.
+Nepal publishes detailed customs and trade data every month, but the raw Excel files can be difficult to explore directly. TradePulse Nepal cleans, converts, ranks, visualizes, and explains the data so users can quickly understand how Nepal's trade economy is moving.
 
-The dashboard is designed for students, researchers, journalists, businesses, policymakers, trade analysts, and anyone interested in understanding how Nepal’s market is moving.
+The dashboard is designed for students, researchers, journalists, businesses, policymakers, trade analysts, and anyone interested in Nepal's economy.
 
 ---
 
-## Key Features
+## Key features
 
 - Market snapshot of imports, exports, trade deficit, and total trade
-- Top imported and exported products
-- Partner-country trade analysis
+- Product-level import and export rankings
+- Country and partner-level trade analysis
 - Customs route concentration analysis
-- Product-level Opportunity Finder
-- Country intelligence dashboard
-- Business opportunity and policy risk signals
-- Downloadable monthly trade brief in TXT and PDF formats
-- About / Methodology section
-- Developer profile section
-- Excel upload support for Department of Customs workbooks
+- Monthly trend dashboard using files inside `monthly_data/`
+- Product movement signals across months
+- Opportunity Finder for import-substitution and market-screening ideas
+- Automated Insights tab with rule-based trade explanations
+- Ask TradePulse tab with free rule-based question answering
+- Suggested questions for users who do not know what to ask
+- Downloadable trade briefs and Ask TradePulse answers
+- Data Status section showing latest file and monthly files loaded
+- About, Methodology, Limitations, Feedback, and Developer sections
 
 ---
 
-## Data Source
+## Data source
 
-The dashboard uses monthly foreign trade statistics published by the:
+Primary source:
 
 **Department of Customs, Government of Nepal**
 
-The source workbook generally includes data on:
+The app is built around monthly foreign trade statistics workbooks. Depending on the official workbook structure, the dataset may include:
 
 - Imports
 - Exports
@@ -53,25 +55,48 @@ The source workbook generally includes data on:
 
 ---
 
-## Unit Conversion
+## Units and conversion
 
-The original customs workbook reports many monetary values in **Rs. thousands**.
+Many monetary values in the Department of Customs workbook are reported in **Rs. thousands**.
 
-This dashboard converts them into **Rs. billion** for readability.
+TradePulse Nepal converts those values into **Rs. billion** for easier reading.
 
 ```text
 Rs. billion = source value / 1,000,000
 ```
 
+Users should verify important figures with the original Department of Customs workbook before formal citation or publication.
+
+---
+
+## Ask TradePulse
+
+Ask TradePulse is currently a **free rule-based analyst**, not a paid AI API feature.
+
+It answers common questions using the dashboard's processed data, such as:
+
+- What changed in the latest month?
+- What is Nepal importing most?
+- What is Nepal exporting most?
+- Which country dominates imports?
+- Which country is the biggest export destination?
+- Which customs office handles the most trade?
+- What are the main trade risks?
+- Where are the business opportunities?
+- Give me a short trade brief.
+- Give me a media story idea.
+
+This makes the feature safe, transparent, and free to run.
+
 ---
 
 ## Opportunity Finder
 
-The Opportunity Finder is a screening tool that ranks imported products based on:
+The Opportunity Finder is a screening tool that ranks imported products using three signals:
 
-- Market Size Score
-- Revenue Signal Score
-- Approximate Duty Signal Score
+- **Market Size Score**: based on import value
+- **Revenue Signal Score**: based on customs revenue
+- **Duty Signal Score**: based on approximate duty/revenue rate
 
 The final Opportunity Score helps identify products that may deserve deeper research for:
 
@@ -86,26 +111,29 @@ The score is not an investment recommendation.
 
 ---
 
-## Tech Stack
-
-- Python
-- Streamlit
-- pandas
-- Plotly
-- openpyxl
-- ReportLab
-
----
-
-## Project Structure
+## Project structure
 
 ```text
-market-movement-ai/
+tradepulse-nepal/
 ├── app.py
 ├── requirements.txt
-├── customs.xlsx
-├── utsav.jpg
-└── README.md
+├── README.md
+├── customs.xlsx                 # optional latest/default workbook
+├── utsav.png                    # optional developer photo
+└── monthly_data/
+    ├── 01_Shrawan.xlsx
+    ├── 02_Bhadra.xlsx
+    ├── 03_Asoj.xlsx
+    ├── ...
+    └── 11_Jestha.xlsx
+```
+
+The `monthly_data/` folder is used for the Trends tab. Keep the numeric prefix so files sort in the correct Nepali month order.
+
+Example:
+
+```text
+12_Ashadh.xlsx
 ```
 
 ---
@@ -115,8 +143,8 @@ market-movement-ai/
 Clone the repository:
 
 ```bash
-git clone https://github.com/your-username/market-movement-ai.git
-cd market-movement-ai
+git clone https://github.com/utsavhatescoding/tradepulse-nepal.git
+cd tradepulse-nepal
 ```
 
 Install dependencies:
@@ -135,8 +163,6 @@ streamlit run app.py
 
 ## Requirements
 
-The `requirements.txt` file should include:
-
 ```text
 streamlit
 pandas
@@ -147,30 +173,56 @@ reportlab
 
 ---
 
-## How to Use
+## Monthly update workflow
+
+When a new Department of Customs workbook is released:
+
+1. Download the latest Excel file.
+2. Rename it using the next month number and month name.
+   - Example: `12_Ashadh.xlsx`
+3. Add the file to the `monthly_data/` folder.
+4. Replace `customs.xlsx` with the latest workbook if you want the main dashboard to open on the newest month.
+5. Commit and push to GitHub.
+6. Streamlit Cloud redeploys the app automatically.
+7. Open the live app and check the Data Status and Trends tabs.
+
+---
+
+## How to use
 
 1. Open the dashboard.
-2. Upload a Department of Customs Excel workbook, or use the default `customs.xlsx`.
-3. Explore the dashboard tabs:
+2. Use the default `customs.xlsx` or upload a Department of Customs workbook.
+3. Explore the tabs:
    - Overview
    - Products
    - Opportunity Finder
    - Countries
    - Customs Routes
+   - Trends
    - About / Methodology
    - Insights
-4. Download the monthly trade brief as TXT or PDF.
+   - Ask TradePulse
+4. Download trade briefs or Ask TradePulse answers when needed.
 
 ---
 
 ## Limitations
 
-- The dashboard depends on the structure and accuracy of the uploaded customs workbook.
-- Sheet names in the workbook must match the expected Department of Customs format.
+- The dashboard depends on the structure and accuracy of the official customs workbook.
+- Sheet names and column names must remain close to the expected Department of Customs format.
 - Opportunity Scores are screening indicators only.
-- The dashboard does not prove business feasibility or profitability.
-- Import-substitution potential requires additional data on production capacity, costs, technology, regulation, and demand.
-- The tool is for research, business intelligence, and policy discussion, not investment advice.
+- The dashboard does not prove profitability, feasibility, or investment potential.
+- Import-substitution potential requires additional data on production capacity, costs, demand, regulation, and technology.
+- Automated insights are generated only from available dashboard numbers.
+- Users should verify figures with the original workbook before formal citation.
+
+---
+
+## Suggested citation
+
+```text
+TradePulse Nepal Dashboard. Based on monthly foreign trade statistics published by the Department of Customs, Government of Nepal.
+```
 
 ---
 
@@ -179,24 +231,20 @@ reportlab
 **Utsav Phuyal**  
 Developer & Researcher, TradePulse Nepal
 
-I am interested in economics, data analytics, public data, trade intelligence, and AI-powered decision tools. TradePulse Nepal was built to make Nepal’s customs and trade data easier to understand and use.
+I built TradePulse Nepal to make Nepal's public trade data easier to understand and use through dashboards, product-level analysis, country intelligence, opportunity signals, automated briefs, and simple public-data tools.
 
 Contact:
 
-Email: utsavkphuyal@gmail.com
-
-```
-
----
-
-## Suggested Citation
-
 ```text
-TradePulse Nepal Dashboard. Based on monthly foreign trade statistics published by the Department of Customs, Government of Nepal.
+Email: utsavkphuyal@gmail.com
+LinkedIn: linkedin.com/in/utsav-phuyal
+GitHub: github.com/utsavhatescoding
 ```
 
 ---
 
-## License
+## Status
 
-This project is currently released as an MVP for learning, research, and demonstration purposes.
+Current version: **Public MVP 0.5**
+
+TradePulse Nepal is currently a free public-data MVP. Feedback, bug reports, and feature suggestions are welcome.
