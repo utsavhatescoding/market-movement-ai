@@ -1936,6 +1936,74 @@ def ask_tradepulse_rule_based(
             "Export value should be checked with destination markets, product margins, and policy incentives."
         )
 
+
+    if "sector" in q or "category" in q or "industries" in q or "industry" in q:
+        try:
+            temp_sector = build_sector_summary(imports, exports)
+            if temp_sector is not None and len(temp_sector) > 0:
+                top_import_sector = temp_sector.sort_values("Imports_Billion", ascending=False).iloc[0]
+                top_export_sector = temp_sector.sort_values("Exports_Billion", ascending=False).iloc[0]
+                top_gap_sector = temp_sector.sort_values("Sector_Gap_Billion", ascending=False).iloc[0]
+                sector_lines = []
+                for idx, row in enumerate(temp_sector.sort_values("Imports_Billion", ascending=False).head(6).itertuples(index=False), start=1):
+                    sector_lines.append(
+                        f"{idx}. {getattr(row, 'Sector', 'Unknown')} — imports {fmt_money(getattr(row, 'Imports_Billion', 0))}, exports {fmt_money(getattr(row, 'Exports_Billion', 0))}, gap {fmt_money(getattr(row, 'Sector_Gap_Billion', 0))}"
+                    )
+                return analyst_answer(
+                    "Sector read",
+                    f"The largest import sector is **{top_import_sector['Sector']}**, while the largest export sector is **{top_export_sector['Sector']}**. The largest sector trade gap is in **{top_gap_sector['Sector']}**.",
+                    "Sector grouping helps move from thousands of product lines to a cleaner view of where Nepal's trade dependence and export strengths are concentrated.",
+                    "\n".join(sector_lines),
+                    "Sectors are grouped using HS chapters. They are analytical groups, not official Department of Customs sector categories."
+                )
+        except Exception:
+            pass
+
+    if "detail" in q or "profile" in q or "tell me about" in q or "about" in q or "hs code" in q or "hscode" in q:
+        try:
+            stopwords = {
+                "what", "about", "detail", "profile", "tell", "nepal", "import", "imports", "export", "exports",
+                "product", "products", "trade", "most", "main", "top", "which", "where", "this", "that", "give", "explain"
+            }
+            tokens = [token for token in q.replace("?", " ").replace(",", " ").split() if len(token) >= 4 and token not in stopwords]
+            digits = "".join(ch for ch in q if ch.isdigit())
+            pool_parts = []
+            imp_pool = imports.copy()
+            imp_pool["Direction"] = "Import"
+            imp_pool["Value_Billion"] = imp_pool.get("Imports_Billion", 0)
+            exp_pool = exports.copy()
+            exp_pool["Direction"] = "Export"
+            exp_pool["Value_Billion"] = exp_pool.get("Exports_Billion", 0)
+            pool = pd.concat([imp_pool, exp_pool], ignore_index=True, sort=False)
+            pool["Description_Lower"] = pool["Description"].astype(str).str.lower()
+            pool["HSCode_Text"] = pool["HSCode"].astype(str)
+
+            matched = pool.iloc[0:0].copy()
+            if len(digits) >= 2:
+                matched = pool[pool["HSCode_Text"].str.startswith(digits[:2])].copy()
+            if len(matched) == 0 and tokens:
+                mask = False
+                for token in tokens:
+                    mask = mask | pool["Description_Lower"].str.contains(token, na=False, regex=False)
+                matched = pool[mask].copy()
+
+            if len(matched) > 0:
+                best = matched.sort_values("Value_Billion", ascending=False).iloc[0]
+                desc = best.get("Description", "Selected product")
+                hs = best.get("HSCode", "")
+                direction = best.get("Direction", "Trade")
+                value = best.get("Value_Billion", 0)
+                sector = sector_from_hscode(hs)
+                return analyst_answer(
+                    "Product profile",
+                    f"The closest product match is **{desc}** under HS code **{hs}**. In the current dashboard it appears mainly as **{direction.lower()} trade**, valued at **{fmt_money(value)}**.",
+                    "A product profile helps connect the product's value with its sector, possible dependence, and deeper questions about countries and routes.",
+                    f"Sector: **{sector}**. Direction: **{direction}**. Value: **{fmt_money(value)}**.",
+                    "This is a quick match from product descriptions/HS codes. Use the Product Detail tab for more precise product-level partner and movement data."
+                )
+        except Exception:
+            pass
+
     if "country" in q or "partner" in q or "india" in q or "china" in q:
         if "export" in q:
             return analyst_answer(
@@ -2013,6 +2081,152 @@ def ask_tradepulse_rule_based(
         f"**What are the top import products?**, **Which country dominates imports?**, "
         f"**What is the trade deficit?**, or **What are the main risks?**"
     )
+
+
+
+def build_tradepulse_ai_context(
+    current_col,
+    source_file_label,
+    latest_month_label,
+    monthly_files_count,
+    imports_total,
+    exports_total,
+    deficit_total,
+    total_trade,
+    import_export_ratio,
+    imports,
+    exports,
+    countries,
+    customs,
+    sector_summary,
+    monthly_data_path
+):
+    """Create a compact, processed-data-only context for an LLM."""
+    trend_summary = build_trend_summary_for_report(monthly_data_path)
+
+    def top_lines(df, name_col, value_col, n=8):
+        if df is None or len(df) == 0 or value_col not in df.columns:
+            return "Not available"
+        temp = df.sort_values(value_col, ascending=False).head(n)
+        lines = []
+        for idx, row in enumerate(temp.itertuples(index=False), start=1):
+            name = getattr(row, name_col, "Unknown") if hasattr(row, name_col) else row._asdict().get(name_col, "Unknown")
+            value = getattr(row, value_col, 0)
+            lines.append(f"{idx}. {name}: {fmt_money(value)}")
+        return "\n".join(lines)
+
+    top_import_products = top_lines(imports, "Description", "Imports_Billion")
+    top_export_products = top_lines(exports, "Description", "Exports_Billion")
+    top_import_countries = top_lines(countries, "Partner Countries", "Imports_Billion")
+    top_export_countries = top_lines(countries, "Partner Countries", "Exports_Billion")
+    top_routes = top_lines(customs, "Customs", "Imports_Billion")
+
+    if sector_summary is not None and len(sector_summary) > 0:
+        sector_lines = []
+        for idx, row in enumerate(sector_summary.sort_values("Imports_Billion", ascending=False).head(8).itertuples(index=False), start=1):
+            sector_lines.append(
+                f"{idx}. {getattr(row, 'Sector', 'Unknown')}: imports {fmt_money(getattr(row, 'Imports_Billion', 0))}, exports {fmt_money(getattr(row, 'Exports_Billion', 0))}, gap {fmt_money(getattr(row, 'Sector_Gap_Billion', 0))}"
+            )
+        sector_text = "\n".join(sector_lines)
+    else:
+        sector_text = "Not available"
+
+    trend_text = "Monthly movement not available."
+    if trend_summary:
+        trend_text = (
+            f"Latest movement from {trend_summary['previous_period']} to {trend_summary['latest_period']}: "
+            f"imports changed by {fmt_money(trend_summary['import_change'])}, "
+            f"exports changed by {fmt_money(trend_summary['export_change'])}, "
+            f"deficit changed by {fmt_money(trend_summary['deficit_change'])}. "
+            f"{trend_summary['movement_note']}"
+        )
+
+    return f"""
+TradePulse Nepal processed data context
+Data source: Department of Customs, Government of Nepal
+Main dashboard file: {source_file_label}
+Current period/column: {current_col}
+Latest monthly file: {latest_month_label}
+Monthly files loaded: {monthly_files_count}
+Unit: Rs. billion, converted from source values in Rs. thousands
+
+Market snapshot:
+- Imports: {fmt_money(imports_total)}
+- Exports: {fmt_money(exports_total)}
+- Trade deficit: {fmt_money(deficit_total)}
+- Total foreign trade: {fmt_money(total_trade)}
+- Import-export ratio: {import_export_ratio:,.1f}x
+
+Latest monthly signal:
+{trend_text}
+
+Top import products:
+{top_import_products}
+
+Top export products:
+{top_export_products}
+
+Top import partners:
+{top_import_countries}
+
+Top export destinations:
+{top_export_countries}
+
+Top customs routes by import value:
+{top_routes}
+
+Sector summary:
+{sector_text}
+""".strip()
+
+
+def generate_gemini_trade_answer(question, data_context, api_key, model_name="gemini-2.5-flash"):
+    """Generate Gemini answer using only the processed TradePulse context."""
+    if not api_key:
+        return "Gemini API key is missing. Add GEMINI_API_KEY in Streamlit Secrets to use this tab."
+
+    try:
+        from google import genai
+    except Exception:
+        return "The google-genai package is missing. Add `google-genai` to requirements.txt and redeploy."
+
+    system_rules = """
+You are TradePulse Nepal's AI trade analyst.
+Answer only from the provided processed dashboard context.
+Do not invent numbers, dates, sources, products, sectors, or countries.
+If the context does not contain enough information, say the data is not available in the current dashboard.
+Use Rs. billion where values are provided that way.
+Be analytical but cautious. Do not give investment advice.
+For most answers, use this structure:
+1. Direct answer
+2. What the data suggests
+3. Why it matters
+4. Caution
+Keep the answer concise and useful for students, researchers, journalists, and businesses in Nepal.
+""".strip()
+
+    prompt = f"""
+{system_rules}
+
+DATA CONTEXT:
+{data_context}
+
+USER QUESTION:
+{question}
+""".strip()
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt
+        )
+        answer = getattr(response, "text", "")
+        if answer:
+            return answer.strip()
+        return "Gemini returned an empty answer. Try again or use the free rule-based Ask TradePulse tab."
+    except Exception as exc:
+        return f"Gemini could not generate an answer. Error: {exc}"
 
 # -----------------------------
 # Prepare data
@@ -2203,7 +2417,7 @@ st.caption(
 # Tabs
 # -----------------------------
 
-overview_tab, product_tab, sector_tab, detail_tab, opportunity_tab, country_tab, route_tab, trend_tab, about_tab, insight_tab, ask_tab = st.tabs(
+overview_tab, product_tab, sector_tab, detail_tab, opportunity_tab, country_tab, route_tab, trend_tab, about_tab, insight_tab, ask_tab, gemini_tab = st.tabs(
     [
         "Overview",
         "Products",
@@ -2215,7 +2429,8 @@ overview_tab, product_tab, sector_tab, detail_tab, opportunity_tab, country_tab,
         "Trends",
         "About / Methodology",
         "Insights",
-        "Ask TradePulse"
+        "Ask TradePulse",
+        "Gemini AI Analyst"
     ]
 )
 
@@ -4282,6 +4497,135 @@ with ask_tab:
         "For now, it is intentionally simple, free, and safer."
     )
 
+
+
+
+
+# -----------------------------
+# Gemini AI Analyst tab
+# -----------------------------
+
+with gemini_tab:
+    st.subheader("Gemini AI Analyst")
+
+    st.info(
+        "This is an optional Google Gemini-based analyst. The free rule-based Ask TradePulse tab still works without any API. "
+        "Gemini answers are generated only from a compact processed summary of the dashboard data."
+    )
+
+    api_key = st.secrets.get("GEMINI_API_KEY", "")
+
+    if not api_key:
+        st.warning("Gemini API key is not set yet. Add GEMINI_API_KEY in Streamlit Secrets to activate this tab.")
+        with st.expander("How to set up Gemini API key"):
+            st.markdown(
+                """
+                1. Create a Gemini API key from Google AI Studio.
+                2. In Streamlit Cloud, open your app settings.
+                3. Go to **Secrets**.
+                4. Add:
+
+                ```toml
+                GEMINI_API_KEY = "paste_your_key_here"
+                ```
+
+                5. Add `google-genai` to `requirements.txt`.
+                6. Reboot/redeploy the app.
+                """
+            )
+
+    default_ai_question = "Give me an analyst brief on Nepal's latest trade situation."
+    ai_question = st.text_area(
+        "Ask the Gemini analyst",
+        value=default_ai_question,
+        height=110,
+        placeholder="Example: What are the main risks and opportunities in the latest customs data?",
+        key="gemini_ai_question"
+    )
+
+    g1, g2 = st.columns([1, 1])
+    with g1:
+        model_name = st.selectbox(
+            "Gemini model",
+            ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
+            index=0,
+            help="Use Flash for better answers. If one model fails, try another available model for your API key."
+        )
+    with g2:
+        st.metric("Data sent to AI", "Processed summary only", "No raw Excel upload")
+
+    with st.expander("Preview data context sent to Gemini"):
+        context_preview = build_tradepulse_ai_context(
+            current_col=current_col,
+            source_file_label=source_file_label,
+            latest_month_label=latest_month_label,
+            monthly_files_count=monthly_files_count,
+            imports_total=imports_total,
+            exports_total=exports_total,
+            deficit_total=deficit_total,
+            total_trade=total_trade,
+            import_export_ratio=import_export_ratio,
+            imports=imports,
+            exports=exports,
+            countries=countries,
+            customs=customs,
+            sector_summary=sector_summary,
+            monthly_data_path=Path(__file__).parent / "monthly_data"
+        )
+        st.text_area("Processed context", value=context_preview, height=300, key="gemini_context_preview")
+
+    if "gemini_answer" not in st.session_state:
+        st.session_state["gemini_answer"] = ""
+
+    if st.button("Generate Gemini AI analysis", type="primary", key="generate_gemini_analysis"):
+        data_context = build_tradepulse_ai_context(
+            current_col=current_col,
+            source_file_label=source_file_label,
+            latest_month_label=latest_month_label,
+            monthly_files_count=monthly_files_count,
+            imports_total=imports_total,
+            exports_total=exports_total,
+            deficit_total=deficit_total,
+            total_trade=total_trade,
+            import_export_ratio=import_export_ratio,
+            imports=imports,
+            exports=exports,
+            countries=countries,
+            customs=customs,
+            sector_summary=sector_summary,
+            monthly_data_path=Path(__file__).parent / "monthly_data"
+        )
+
+        with st.spinner("Gemini is reading the TradePulse data summary..."):
+            ai_answer = generate_gemini_trade_answer(
+                question=ai_question,
+                data_context=data_context,
+                api_key=api_key,
+                model_name=model_name
+            )
+        st.session_state["gemini_answer"] = ai_answer
+
+    if st.session_state.get("gemini_answer"):
+        st.markdown("### Gemini answer")
+        st.markdown(st.session_state["gemini_answer"])
+
+        gemini_download = (
+            f"TradePulse Nepal - Gemini AI Analyst\n\n"
+            f"Question:\n{ai_question}\n\n"
+            f"Answer:\n{st.session_state['gemini_answer']}\n"
+        )
+        st.download_button(
+            label="Download Gemini answer as TXT",
+            data=gemini_download.encode("utf-8"),
+            file_name="tradepulse_gemini_answer.txt",
+            mime="text/plain",
+            key="download_gemini_answer"
+        )
+
+    st.caption(
+        "Gemini output should be reviewed before use in formal reports or media articles. "
+        "The safe rule-based Ask TradePulse tab remains the default free fallback."
+    )
 
 
 # -----------------------------
