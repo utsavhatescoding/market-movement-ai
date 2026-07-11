@@ -2180,7 +2180,7 @@ Sector summary:
 """.strip()
 
 
-def generate_gemini_trade_answer(question, data_context, api_key, model_name="gemini-2.5-flash"):
+def generate_gemini_trade_answer(question, data_context, api_key, model_name="gemini-3.1-flash-lite"):
     """Generate Gemini answer using only the processed TradePulse context."""
     if not api_key:
         return "Gemini API key is missing. Add GEMINI_API_KEY in Streamlit Secrets to use this tab."
@@ -2218,7 +2218,7 @@ USER QUESTION:
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model=model_name,
+            model="gemini-3.1-flash-lite",
             contents=prompt
         )
         answer = getattr(response, "text", "")
