@@ -20,10 +20,10 @@ import html
 import re
 
 st.set_page_config(
-    page_title="TradePulse Nepal | Nepal Trade Intelligence",
+    page_title="Nepal Import Export Data | TradePulse Nepal",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"
 )
 
 # -----------------------------
@@ -68,12 +68,14 @@ st.markdown("""
     }
 
     [data-testid="stHeader"] {
-        background: rgba(251, 252, 255, 0.72);
+        background: rgba(251, 252, 255, 0.88);
         backdrop-filter: blur(14px);
+        min-height: 3.5rem;
     }
 
+    /* Keep the first controls clear of Streamlit's fixed top chrome. */
     .block-container {
-        padding-top: 1.15rem;
+        padding-top: 4.75rem !important;
         padding-bottom: 3.5rem;
         max-width: 1420px;
     }
@@ -696,6 +698,7 @@ st.markdown("""
 
     @media (max-width: 768px) {
         .block-container {
+            padding-top: 4.35rem !important;
             padding-left: .85rem;
             padding-right: .85rem;
         }
@@ -902,6 +905,22 @@ else:
     selected_release_label = clean_period_label(selected_monthly_file) if selected_monthly_file else "Not available"
 
 latest_monthly_file = monthly_files_for_default[-1] if monthly_files_for_default else None
+
+# Trend calculations must never look beyond the release the user selected.
+# Example: selecting Kartik should use Shrawan→Kartik only, not future months from the same FY.
+selected_trend_end_name = selected_monthly_file.name if selected_monthly_file is not None else None
+
+def get_trend_files_for_period(monthly_data_path, end_file_name=None):
+    path = Path(monthly_data_path)
+    if not path.exists():
+        return []
+
+    files = sorted(path.glob("*.xlsx"), key=monthly_file_sort_key)
+    if end_file_name:
+        names = [f.name for f in files]
+        if end_file_name in names:
+            files = files[: names.index(end_file_name) + 1]
+    return files
 
 # Production priority:
 # user upload -> user-selected fiscal-year release -> customs.xlsx fallback.
@@ -1254,14 +1273,14 @@ def build_product_movement_table(trend_files, sheet_name, value_col):
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
-def build_trend_summary_for_report(monthly_data_path):
+def build_trend_summary_for_report(monthly_data_path, end_file_name=None):
     """Create a compact trend summary for the app and PDF report from static monthly_data files."""
     try:
         monthly_data_path = Path(monthly_data_path)
         if not monthly_data_path.exists():
             return None
 
-        trend_files = sorted(monthly_data_path.glob("*.xlsx"), key=monthly_file_sort_key)
+        trend_files = get_trend_files_for_period(monthly_data_path, end_file_name)
         if len(trend_files) < 2:
             return None
 
@@ -2103,14 +2122,14 @@ def product_partner_table(partner_df, hscode, value_col, display_value_col, top_
     return selected[available_cols]
 
 
-def product_monthly_movement(monthly_data_path, hscode, direction="import"):
+def product_monthly_movement(monthly_data_path, hscode, direction="import", end_file_name=None):
     """Return monthly movement for one product from cumulative monthly files when available."""
     try:
         monthly_data_path = Path(monthly_data_path)
         if not monthly_data_path.exists():
             return pd.DataFrame()
 
-        trend_files = sorted(monthly_data_path.glob("*.xlsx"), key=monthly_file_sort_key)
+        trend_files = get_trend_files_for_period(monthly_data_path, end_file_name)
         if len(trend_files) < 2:
             return pd.DataFrame()
 
@@ -2155,13 +2174,13 @@ def clean_display(value):
     return html.escape(str(value))
 
 
-def trend_monthly_signal(monthly_data_path):
+def trend_monthly_signal(monthly_data_path, end_file_name=None):
     """Create a small trend signal from cumulative monthly customs files."""
     try:
         if not monthly_data_path.exists():
             return None
 
-        trend_files = sorted(monthly_data_path.glob("*.xlsx"), key=monthly_file_sort_key)
+        trend_files = get_trend_files_for_period(monthly_data_path, end_file_name)
         if len(trend_files) < 2:
             return None
 
@@ -2224,7 +2243,7 @@ def build_automated_insights(
     top_import_share = (top_import_value / imports_total * 100) if imports_total else 0
     top_export_share = (top_export_value / exports_total * 100) if exports_total else 0
 
-    trend_signal = trend_monthly_signal(monthly_data_path)
+    trend_signal = trend_monthly_signal(monthly_data_path, selected_trend_end_name)
 
     # Product concentration
     top5_import_share = 0
@@ -2364,7 +2383,7 @@ def ask_tradepulse_rule_based(
     if not q:
         return "Ask a question about imports, exports, trade deficit, products, countries, customs routes, opportunities, or risks."
 
-    trend_summary = build_trend_summary_for_report(monthly_data_path)
+    trend_summary = build_trend_summary_for_report(monthly_data_path, selected_trend_end_name)
     deficit_share = (deficit_total / total_trade * 100) if total_trade else 0
 
     top5_imports = imports.sort_values("Imports_Billion", ascending=False).head(5)
@@ -2641,7 +2660,7 @@ def build_tradepulse_ai_context(
     monthly_data_path
 ):
     """Create a compact, processed-data-only context for an LLM."""
-    trend_summary = build_trend_summary_for_report(monthly_data_path)
+    trend_summary = build_trend_summary_for_report(monthly_data_path, selected_trend_end_name)
 
     def top_lines(df, name_col, value_col, n=8):
         if df is None or len(df) == 0 or value_col not in df.columns:
@@ -2736,6 +2755,7 @@ def build_compact_gemini_context(
     sector_summary=None,
     monthly_data_path=None,
     context_mode="Detailed",
+    trend_end_file_name=None,
 ):
     """Build a processed TradePulse context for Gemini.
 
@@ -2817,7 +2837,7 @@ def build_compact_gemini_context(
         try:
             if not monthly_data_path:
                 return f"{label} movement not available."
-            trend_files = sorted(Path(monthly_data_path).glob("*.xlsx"), key=monthly_file_sort_key)
+            trend_files = get_trend_files_for_period(monthly_data_path, trend_end_file_name)
             if len(trend_files) < 2:
                 return f"{label} movement not available."
             movement = build_product_movement_table(trend_files, sheet_name, value_col)
@@ -2854,7 +2874,7 @@ def build_compact_gemini_context(
         try:
             if not monthly_data_path:
                 return "Monthly trend table not available."
-            trend_files = sorted(Path(monthly_data_path).glob("*.xlsx"), key=monthly_file_sort_key)
+            trend_files = get_trend_files_for_period(monthly_data_path, trend_end_file_name)
             rows = []
             for file_path in trend_files:
                 try:
@@ -2880,7 +2900,7 @@ def build_compact_gemini_context(
             return "Monthly trend table not available."
 
     try:
-        trend_summary = build_trend_summary_for_report(monthly_data_path) if monthly_data_path else None
+        trend_summary = build_trend_summary_for_report(monthly_data_path, trend_end_file_name) if monthly_data_path else None
     except Exception:
         trend_summary = None
 
@@ -3304,7 +3324,7 @@ st.markdown(
 # Tabs
 # -----------------------------
 
-overview_tab, product_tab, sector_tab, detail_tab, opportunity_tab, country_tab, route_tab, trend_tab, about_tab, insight_tab, ask_tab, gemini_tab = st.tabs(
+overview_tab, product_tab, sector_tab, detail_tab, opportunity_tab, country_tab, route_tab, trend_tab, insight_tab, ask_tab, gemini_tab = st.tabs(
     [
         "Overview",
         "Products",
@@ -3314,7 +3334,6 @@ overview_tab, product_tab, sector_tab, detail_tab, opportunity_tab, country_tab,
         "Countries",
         "Customs Routes",
         "Trends",
-        "About / Methodology",
         "Insights",
         "Ask TradePulse",
         "Gemini AI Analyst"
@@ -3941,7 +3960,8 @@ with detail_tab:
         movement_table = product_monthly_movement(
             monthly_data_path,
             detail["hs"],
-            direction=direction
+            direction=direction,
+            end_file_name=selected_trend_end_name
         )
 
         if len(movement_table) == 0:
@@ -4348,7 +4368,7 @@ with trend_tab:
     if not monthly_data_path.exists():
         st.warning("No active monthly-data folder was found. Add monthly_data/<FY>/ and place monthly Customs workbooks inside it.")
     else:
-        trend_files = sorted(monthly_data_path.glob("*.xlsx"), key=monthly_file_sort_key)
+        trend_files = get_trend_files_for_period(monthly_data_path, selected_trend_end_name)
 
         if len(trend_files) == 0:
             st.info("No monthly Customs files are available in the active fiscal-year folder yet.")
@@ -4919,196 +4939,7 @@ with trend_tab:
                 except Exception as e:
                     st.warning(f"Could not generate product movement analysis: {e}")
 
-# -----------------------------
-# About / Methodology tab
-# -----------------------------
 
-with about_tab:
-    st.subheader("About TradePulse Nepal")
-
-    st.markdown(
-        """
-        <div class="section-card">
-            <h3>What is TradePulse Nepal?</h3>
-            <p>
-            TradePulse Nepal is a data dashboard that converts Nepal's Department of Customs trade data
-            into simple market intelligence. It helps users understand imports, exports, trade deficit,
-            product movement, country dependence, customs route concentration, business opportunities,
-            and policy risks.
-            </p>
-            <p>
-            The goal is to make public trade data easier to understand for students, researchers,
-            journalists, businesses, policymakers, and analysts.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown("### Data Status and Trust Notes")
-
-    dsn1, dsn2, dsn3 = st.columns(3)
-    with dsn1:
-        st.metric("Current period", current_period_display)
-    with dsn2:
-        st.metric("Monthly files loaded", monthly_files_count)
-    with dsn3:
-        st.metric("Latest monthly file", latest_month_label)
-
-    st.info(
-        "TradePulse Nepal is a free public-data project. It uses Department of Customs workbooks available to the app. "
-        "The dashboard does not modify official data; it cleans, converts, ranks, and explains the numbers for easier reading."
-    )
-
-    m1, m2 = st.columns(2)
-
-    with m1:
-        st.markdown(
-            """
-            <div class="section-card">
-                <h3>Data Source</h3>
-                <p><b>Primary source:</b> Department of Customs, Government of Nepal.</p>
-                <p><b>Dataset type:</b> Monthly foreign trade statistics.</p>
-                <p><b>Coverage:</b> Imports, exports, partner countries, commodities, HS codes, customs offices, quantity, value, and revenue.</p>
-                <p><b>Current dashboard period:</b> shown in the Data Status section on top of the dashboard.</p>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    with m2:
-        st.markdown(
-            """
-            <div class="section-card">
-                <h3>Units and Conversion</h3>
-                <p>The original customs workbook reports many monetary values in <b>Rs. thousands</b>.</p>
-                <p>This dashboard converts values into <b>Rs. billion</b> for easier reading.</p>
-                <p><b>Formula used:</b></p>
-                <p>Rs. billion = Source value ÷ 1,000,000</p>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    st.markdown("### Methodology")
-
-    st.markdown(
-        """
-        <div class="section-card">
-            <h3>How the Dashboard Works</h3>
-            <ol>
-                <li>The user uploads a Department of Customs Excel workbook.</li>
-                <li>The dashboard reads trade, product, country, partner, export, import, and customs-office sheets.</li>
-                <li>Values are cleaned and converted from Rs. thousands to Rs. billion.</li>
-                <li>Total rows are removed so rankings show actual products, countries, and customs routes.</li>
-                <li>The dashboard calculates key indicators such as total imports, exports, trade deficit, import-export ratio, country shares, product rankings, and route concentration.</li>
-                <li>The Opportunity Finder ranks products using import value, customs revenue, and approximate duty signal.</li>
-                <li>The Insights tab generates a simple trade brief using calculated dashboard numbers.</li>
-            </ol>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown("### Opportunity Finder Score")
-
-    st.markdown(
-        """
-        <div class="opportunity-card">
-            <p><b>The Opportunity Finder is a screening tool, not an investment recommendation.</b></p>
-            <p>It ranks imported products using three signals:</p>
-            <ul>
-                <li><b>Market Size Score:</b> based on import value.</li>
-                <li><b>Revenue Signal Score:</b> based on customs revenue.</li>
-                <li><b>Duty Signal Score:</b> based on approximate duty/revenue rate.</li>
-            </ul>
-            <p>The score helps identify products that may deserve deeper research for import-substitution,
-            sourcing, distribution, trade finance, or policy analysis.</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown("### Limitations")
-
-    st.markdown(
-        """
-        <div class="risk-card">
-            <ul>
-                <li>The dashboard depends on the structure and accuracy of the uploaded customs workbook.</li>
-                <li>The Opportunity Score does not prove profitability or feasibility.</li>
-                <li>Import-substitution potential requires additional data on domestic production, demand, costs, technology, and regulation.</li>
-                <li>AI-style insights are generated only from available dashboard numbers and should be verified before publication.</li>
-                <li>This dashboard is for research, business intelligence, and policy discussion — not financial or investment advice.</li>
-                <li>Users should verify figures with the original Department of Customs workbook before citing them formally.</li>
-            </ul>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown("### Suggested Citation")
-
-    st.code(
-        "TradePulse Nepal Dashboard. Based on monthly foreign trade statistics published by the Department of Customs, Government of Nepal.",
-        language="text"
-    )
-
-    st.markdown("### Feedback and Contact")
-
-    st.markdown(
-        '<div class="feedback-card">'
-        '<h3>Help improve TradePulse Nepal</h3>'
-        '<p>TradePulse Nepal is a free public-data project. Feedback is welcome, especially if you find a data issue, broken chart, confusing label, missing feature, or a useful trade question the dashboard should answer.</p>'
-        '<div class="contact-grid">'
-        '<div class="contact-item"><b>Email</b>utsavkphuyal@gmail.com</div>'
-        '<div class="contact-item"><b>LinkedIn</b>linkedin.com/in/utsav-phuyal</div>'
-        '<div class="contact-item"><b>GitHub</b>github.com/utsavhatescoding</div>'
-        '</div>'
-        '<p><b>Suggested feedback:</b> missing products, wrong labels, monthly data update issues, UI problems, or questions Ask TradePulse should answer better.</p>'
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-    st.markdown("---")
-
-    st.subheader("Developer")
-
-    dev_col1, dev_col2 = st.columns([0.32, 0.68])
-
-    with dev_col1:
-        if developer_photo_path.exists():
-            st.image(str(developer_photo_path), caption="Utsav Phuyal", use_container_width=True)
-        else:
-            st.info("Upload your photo as utsav.png in the same folder as app.py to show it here.")
-
-    with dev_col2:
-        st.markdown("### Utsav Phuyal")
-        st.markdown("**Developer & Researcher, TradePulse Nepal**")
-
-        st.write(
-            "I am a business and economics graduate student interested in data analytics, "
-            "economic research, trade intelligence, financial stability, and AI-powered "
-            "public-data tools."
-        )
-
-        st.write(
-            "I built TradePulse Nepal to make Nepal's Department of Customs data easier "
-            "to understand through dashboards, product-level analysis, country intelligence, "
-            "opportunity signals, and automated trade briefs."
-        )
-
-        st.write(
-            "The goal is to turn raw public data into clear market insights, business signals, "
-            "policy risks, and report-ready analysis."
-        )
-
-        st.markdown("**Contact**")
-        st.markdown(
-            "Email: utsavkphuyal@gmail.com  \n"
-            "LinkedIn: linkedin.com/in/utsav-phuyal  \n"
-            "GitHub: github.com/utsavhatescoding"
-        )
 # -----------------------------
 # Insights tab
 # -----------------------------
@@ -5215,7 +5046,7 @@ with insight_tab:
         unsafe_allow_html=True
     )
 
-    trend_summary_for_pdf = build_trend_summary_for_report(monthly_data_path)
+    trend_summary_for_pdf = build_trend_summary_for_report(monthly_data_path, selected_trend_end_name)
 
     pdf_buffer = create_pdf_report(
         current_col=current_col,
@@ -5495,6 +5326,7 @@ with gemini_tab:
             sector_summary=sector_summary,
             monthly_data_path=monthly_data_path,
             context_mode=context_mode,
+            trend_end_file_name=selected_trend_end_name,
         )
 
         with st.spinner("Gemini is reading the processed TradePulse context..."):
@@ -5535,7 +5367,7 @@ with gemini_tab:
 
 st.markdown(
     '<div class="tp-footer">'
-    '<b>TradePulse Nepal</b> · Free public data project · Built by Utsav Phuyal<br>'
+    '<b>TradePulse Nepal</b> · Free public data project · Built by Utsav Phuyal · <a href="https://tradepulsenepal.com/about.html" target="_blank">Methodology & contact</a><br>'
     'Data source: Department of Customs, Government of Nepal · Values are converted for easier reading and should be verified with the original workbook before formal citation.<br>'
     'Contact: utsavkphuyal@gmail.com · GitHub: github.com/utsavhatescoding'
     '</div>',
