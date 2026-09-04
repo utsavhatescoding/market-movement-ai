@@ -17,359 +17,826 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import html
+import re
 
 st.set_page_config(
-    page_title="TradePulse Nepal",
-    page_icon="📊",
-    layout="wide"
+    page_title="TradePulse Nepal | Nepal Trade Intelligence",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # -----------------------------
 # Design / CSS
 # -----------------------------
 
+# A restrained but distinctive financial-intelligence palette. Keeping the main
+# content light preserves readability for large tables while the hero/navigation
+# use deeper colors for a premium terminal-like identity.
+px.defaults.template = "plotly_white"
+px.defaults.color_discrete_sequence = [
+    "#355CFF", "#16B8C6", "#EF476F", "#7C5CFC", "#10B981", "#F59E0B"
+]
+
 st.markdown("""
 <style>
     :root {
-        --tp-bg: #F8FAFC;
-        --tp-card: #FFFFFF;
-        --tp-ink: #0F172A;
-        --tp-muted: #64748B;
-        --tp-line: #E2E8F0;
-        --tp-blue: #2563EB;
-        --tp-green: #059669;
-        --tp-amber: #B7791F;
-        --tp-red: #BE123C;
+        --tp-bg: #F5F7FB;
+        --tp-card: rgba(255, 255, 255, 0.92);
+        --tp-card-solid: #FFFFFF;
+        --tp-ink: #0A1020;
+        --tp-muted: #667085;
+        --tp-line: rgba(20, 34, 66, 0.10);
+        --tp-navy: #0A1020;
+        --tp-indigo: #355CFF;
+        --tp-cyan: #16B8C6;
+        --tp-violet: #7C5CFC;
+        --tp-green: #0F9F76;
+        --tp-amber: #D98B12;
+        --tp-red: #D93F66;
+        --tp-shadow: 0 18px 55px rgba(25, 39, 74, 0.10);
     }
+
+    html { scroll-behavior: smooth; }
 
     .stApp {
         background:
-            radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 30%),
-            linear-gradient(180deg, #FFFFFF 0%, var(--tp-bg) 42%, #F8FAFC 100%);
+            radial-gradient(circle at 8% 2%, rgba(53, 92, 255, 0.10), transparent 26%),
+            radial-gradient(circle at 93% 7%, rgba(22, 184, 198, 0.09), transparent 24%),
+            linear-gradient(180deg, #FBFCFF 0%, var(--tp-bg) 48%, #F7F8FC 100%);
+        color: var(--tp-ink);
+    }
+
+    [data-testid="stHeader"] {
+        background: rgba(251, 252, 255, 0.72);
+        backdrop-filter: blur(14px);
     }
 
     .block-container {
-        padding-top: 1.2rem;
-        padding-bottom: 3rem;
-        max-width: 1280px;
+        padding-top: 1.15rem;
+        padding-bottom: 3.5rem;
+        max-width: 1420px;
     }
 
+    /* Sidebar */
     section[data-testid="stSidebar"] {
-        background: #FFFFFF;
+        background:
+            radial-gradient(circle at 0% 0%, rgba(53, 92, 255, 0.10), transparent 30%),
+            #FFFFFF;
         border-right: 1px solid var(--tp-line);
     }
 
+    section[data-testid="stSidebar"] > div {
+        padding-top: 1.1rem;
+    }
+
+    .side-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 13px;
+        margin: 0 0 15px 0;
+        border: 1px solid var(--tp-line);
+        border-radius: 18px;
+        background: rgba(248, 250, 255, 0.92);
+        box-shadow: 0 10px 28px rgba(20, 34, 66, 0.06);
+    }
+
+    .side-logo, .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 42px;
+        height: 42px;
+        border-radius: 13px;
+        color: #FFFFFF;
+        font-weight: 900;
+        letter-spacing: -1px;
+        background: linear-gradient(135deg, var(--tp-indigo), var(--tp-cyan));
+        box-shadow: 0 10px 24px rgba(53, 92, 255, 0.25);
+        flex: 0 0 auto;
+    }
+
+    .side-brand-title {
+        color: var(--tp-ink);
+        font-size: 15px;
+        line-height: 1.05;
+        font-weight: 850;
+        letter-spacing: -0.3px;
+    }
+
+    .side-brand-sub {
+        color: var(--tp-muted);
+        font-size: 11px;
+        margin-top: 4px;
+        letter-spacing: 0.25px;
+    }
+
+    /* Hero */
     .hero {
-        background:
-            linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 64, 175, 0.92) 54%, rgba(5, 150, 105, 0.85) 130%);
-        padding: 36px 38px;
-        border-radius: 28px;
-        color: white;
-        margin-bottom: 24px;
-        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
-        border: 1px solid rgba(255, 255, 255, 0.12);
         position: relative;
         overflow: hidden;
+        isolation: isolate;
+        margin-bottom: 22px;
+        padding: 34px;
+        border-radius: 30px;
+        color: #FFFFFF;
+        background:
+            radial-gradient(circle at 88% 10%, rgba(22, 184, 198, 0.38), transparent 30%),
+            radial-gradient(circle at 58% 110%, rgba(124, 92, 252, 0.42), transparent 38%),
+            linear-gradient(132deg, #091020 0%, #132455 49%, #153B61 100%);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 30px 75px rgba(9, 16, 32, 0.24);
     }
 
-    .hero:after {
+    .hero::before {
         content: "";
         position: absolute;
-        right: -90px;
-        top: -90px;
-        width: 260px;
-        height: 260px;
+        inset: 0;
+        z-index: -1;
+        opacity: 0.28;
+        background-image:
+            linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px);
+        background-size: 44px 44px;
+        mask-image: linear-gradient(to right, rgba(0,0,0,0.75), transparent 82%);
+    }
+
+    .hero::after {
+        content: "";
+        position: absolute;
+        width: 320px;
+        height: 320px;
+        right: -145px;
+        top: -160px;
+        border: 1px solid rgba(255,255,255,0.22);
         border-radius: 50%;
-        background: rgba(255, 255, 255, 0.10);
+        box-shadow:
+            0 0 0 36px rgba(255,255,255,0.035),
+            0 0 0 76px rgba(255,255,255,0.02);
     }
 
-    .hero-title {
-        font-size: 46px;
+    .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.75fr);
+        gap: 28px;
+        align-items: stretch;
+    }
+
+    .brand-lockup {
+        display: flex;
+        gap: 11px;
+        align-items: center;
+        margin-bottom: 24px;
+    }
+
+    .brand-mark {
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #5A75FF, #24D1CD);
+    }
+
+    .brand-name {
+        font-size: 14px;
         font-weight: 850;
-        letter-spacing: -1.5px;
-        margin-bottom: 10px;
-        line-height: 1.05;
-        position: relative;
-        z-index: 1;
+        letter-spacing: 0.2px;
     }
 
-    .hero-subtitle {
-        font-size: 17px;
-        opacity: 0.92;
-        max-width: 850px;
-        line-height: 1.6;
-        position: relative;
-        z-index: 1;
+    .brand-line {
+        margin-top: 2px;
+        font-size: 10px;
+        color: rgba(255,255,255,0.66);
+        text-transform: uppercase;
+        letter-spacing: 1.4px;
     }
 
-    .pill {
+    .hero-kicker {
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        padding: 8px 13px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.14);
-        border: 1px solid rgba(255, 255, 255, 0.24);
-        font-size: 12px;
-        letter-spacing: 0.6px;
+        margin-bottom: 13px;
+        color: #8DE9E5;
+        font-size: 11px;
+        font-weight: 850;
         text-transform: uppercase;
-        margin-bottom: 16px;
-        font-weight: 750;
-        position: relative;
-        z-index: 1;
+        letter-spacing: 1.25px;
     }
 
-    .pill:before {
+    .hero-kicker::before {
         content: "";
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #22C55E;
-        box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.14);
+        width: 22px;
+        height: 2px;
+        border-radius: 99px;
+        background: #8DE9E5;
     }
 
-    .kpi-card {
-        background: rgba(255, 255, 255, 0.92);
-        border: 1px solid var(--tp-line);
+    .hero-title {
+        max-width: 860px;
+        margin: 0 0 14px 0;
+        font-size: clamp(38px, 4.6vw, 67px);
+        line-height: 0.98;
+        letter-spacing: -2.7px;
+        font-weight: 900;
+    }
+
+    .hero-title span {
+        color: #A6F3EE;
+    }
+
+    .hero-subtitle {
+        max-width: 790px;
+        margin: 0;
+        color: rgba(255,255,255,0.78);
+        font-size: 15.5px;
+        line-height: 1.66;
+    }
+
+    .hero-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 22px;
+    }
+
+    .meta-chip, .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 8px 11px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.14);
+        color: rgba(255,255,255,0.86);
+        font-size: 11px;
+        font-weight: 750;
+        letter-spacing: 0.25px;
+    }
+
+    .meta-chip.live::before, .pill::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #58E1A5;
+        box-shadow: 0 0 0 5px rgba(88,225,165,0.12);
+    }
+
+    .pulse-panel {
+        align-self: stretch;
+        padding: 19px;
         border-radius: 22px;
-        padding: 20px 22px;
-        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.07);
-        min-height: 132px;
+        background: rgba(5, 12, 30, 0.48);
+        border: 1px solid rgba(255,255,255,0.13);
+        backdrop-filter: blur(16px);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+
+    .pulse-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: rgba(255,255,255,0.54);
+        font-size: 10px;
+        font-weight: 850;
+        letter-spacing: 1.3px;
+        text-transform: uppercase;
+    }
+
+    .pulse-period {
+        margin: 10px 0 15px 0;
+        font-size: 19px;
+        line-height: 1.22;
+        font-weight: 850;
+        letter-spacing: -0.5px;
+    }
+
+    .pulse-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 2px 14px;
+        padding: 11px 0;
+        border-top: 1px solid rgba(255,255,255,0.10);
+    }
+
+    .pulse-row span {
+        color: rgba(255,255,255,0.62);
+        font-size: 11px;
+        font-weight: 700;
+    }
+
+    .pulse-row strong {
+        font-size: 14px;
+        font-weight: 850;
+    }
+
+    .pulse-row em {
+        grid-column: 1 / -1;
+        color: #A6F3EE;
+        font-size: 10px;
+        font-style: normal;
+        font-weight: 750;
+    }
+
+    /* KPI row */
+    .kpi-card {
+        position: relative;
+        overflow: hidden;
+        min-height: 138px;
+        padding: 20px 21px 18px;
+        border-radius: 21px;
+        background: var(--tp-card);
+        border: 1px solid var(--tp-line);
+        box-shadow: var(--tp-shadow);
+        backdrop-filter: blur(14px);
+        transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    }
+
+    .kpi-card:hover {
+        transform: translateY(-3px);
+        border-color: rgba(53, 92, 255, 0.20);
+        box-shadow: 0 22px 60px rgba(25, 39, 74, 0.14);
+    }
+
+    .kpi-card::after {
+        content: "";
+        position: absolute;
+        width: 78px;
+        height: 78px;
+        right: -28px;
+        bottom: -33px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(53,92,255,0.13), rgba(22,184,198,0.02) 68%);
     }
 
     .kpi-label {
-        font-size: 12px;
-        color: var(--tp-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
-        font-weight: 800;
         margin-bottom: 10px;
+        color: #778197;
+        font-size: 10.5px;
+        font-weight: 900;
+        letter-spacing: 1.15px;
+        text-transform: uppercase;
     }
 
     .kpi-value {
-        font-size: 32px;
+        margin-bottom: 7px;
         color: var(--tp-ink);
-        font-weight: 850;
-        letter-spacing: -0.9px;
-        margin-bottom: 6px;
+        font-size: clamp(25px, 2.2vw, 34px);
+        line-height: 1.05;
+        font-weight: 900;
+        letter-spacing: -1.2px;
     }
 
     .kpi-note {
-        font-size: 13px;
         color: var(--tp-muted);
-        line-height: 1.4;
+        font-size: 11.5px;
+        line-height: 1.45;
     }
 
-    .section-card {
-        background: #FFFFFF;
-        border-radius: 24px;
-        padding: 22px;
+    /* Data status strip */
+    .status-shell {
+        margin: 21px 0 8px 0;
+        padding: 15px;
+        border-radius: 21px;
+        background: rgba(255,255,255,0.68);
         border: 1px solid var(--tp-line);
-        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.055);
-        margin-bottom: 16px;
-        line-height: 1.6;
+        box-shadow: 0 12px 36px rgba(25,39,74,0.055);
+        backdrop-filter: blur(12px);
+    }
+
+    .status-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 0 2px 11px 2px;
+    }
+
+    .status-title {
+        color: var(--tp-ink);
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.9px;
+        text-transform: uppercase;
+    }
+
+    .status-trust {
+        color: var(--tp-green);
+        font-size: 10px;
+        font-weight: 800;
+    }
+
+    .status-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0,1fr));
+        gap: 10px;
+    }
+
+    .status-card {
+        min-width: 0;
+        padding: 12px 13px;
+        border-radius: 14px;
+        background: #FFFFFF;
+        border: 1px solid rgba(20,34,66,0.08);
+    }
+
+    .status-label {
+        margin-bottom: 4px;
+        color: #8A94A8;
+        font-size: 9px;
+        font-weight: 850;
+        letter-spacing: .7px;
+        text-transform: uppercase;
+    }
+
+    .status-value {
+        overflow: hidden;
+        color: #172033;
+        font-size: 12px;
+        font-weight: 800;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .status-note {
+        margin: 10px 3px 1px 3px;
+        color: #7A8497;
+        font-size: 10.5px;
+        line-height: 1.45;
+    }
+
+    /* Content cards */
+    .section-card,
+    .analyst-card,
+    .executive-brief,
+    .feedback-card {
+        background: var(--tp-card);
+        border: 1px solid var(--tp-line);
+        border-radius: 21px;
+        padding: 20px;
+        box-shadow: 0 14px 40px rgba(25,39,74,0.07);
+        backdrop-filter: blur(12px);
+        line-height: 1.62;
+    }
+
+    .section-card { margin-bottom: 14px; }
+    .feedback-card { margin: 15px 0; }
+
+    .insight-card,
+    .risk-card,
+    .opportunity-card {
+        border-radius: 18px;
+        padding: 17px 18px;
+        margin-bottom: 13px;
+        color: var(--tp-ink);
+        line-height: 1.58;
+        box-shadow: 0 10px 30px rgba(25,39,74,0.045);
     }
 
     .insight-card {
-        background: #EFF6FF;
-        border: 1px solid #BFDBFE;
-        border-left: 5px solid var(--tp-blue);
-        border-radius: 18px;
-        padding: 18px 20px;
-        margin-bottom: 14px;
-        color: var(--tp-ink);
-        line-height: 1.58;
+        background: linear-gradient(135deg, #F2F6FF, #F6FBFF);
+        border: 1px solid #D8E3FF;
+        border-left: 4px solid var(--tp-indigo);
     }
 
     .risk-card {
-        background: #FFF1F2;
-        border: 1px solid #FFE4E6;
-        border-left: 5px solid var(--tp-red);
-        border-radius: 18px;
-        padding: 18px 20px;
-        margin-bottom: 14px;
-        color: var(--tp-ink);
-        line-height: 1.58;
+        background: linear-gradient(135deg, #FFF3F6, #FFF8FA);
+        border: 1px solid #FFD9E3;
+        border-left: 4px solid var(--tp-red);
     }
 
     .opportunity-card {
-        background: #ECFDF5;
-        border: 1px solid #BBF7D0;
-        border-left: 5px solid var(--tp-green);
-        border-radius: 18px;
-        padding: 18px 20px;
-        margin-bottom: 14px;
-        color: var(--tp-ink);
-        line-height: 1.58;
+        background: linear-gradient(135deg, #EEFCF8, #F5FFFC);
+        border: 1px solid #CDEFE5;
+        border-left: 4px solid var(--tp-green);
     }
 
     .analyst-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 14px;
+        gap: 13px;
         margin: 12px 0 18px 0;
     }
 
-    .analyst-card {
-        background: #FFFFFF;
-        border: 1px solid var(--tp-line);
-        border-radius: 20px;
-        padding: 18px 19px;
-        box-shadow: 0 12px 26px rgba(15, 23, 42, 0.055);
-    }
-
-    .analyst-card h4 {
+    .analyst-card h4,
+    .feedback-card h3,
+    .section-card h3 {
         margin: 0 0 8px 0;
         color: var(--tp-ink);
-        font-size: 16px;
-        letter-spacing: -0.2px;
+        letter-spacing: -0.35px;
     }
 
     .analyst-card p {
         margin: 0;
-        color: #334155;
-        line-height: 1.55;
-        font-size: 14px;
+        color: #465166;
+        font-size: 13px;
+        line-height: 1.58;
     }
 
     .insight-badge {
-        display: inline-block;
-        padding: 5px 10px;
+        display: inline-flex;
+        align-items: center;
+        padding: 5px 9px;
+        margin-bottom: 9px;
         border-radius: 999px;
-        background: #E0F2FE;
-        color: #075985;
-        font-size: 11px;
-        font-weight: 800;
-        letter-spacing: 0.55px;
+        color: #2447D8;
+        background: #EAF0FF;
+        border: 1px solid #D8E3FF;
+        font-size: 9.5px;
+        font-weight: 900;
+        letter-spacing: .8px;
         text-transform: uppercase;
-        margin-bottom: 10px;
-    }
-
-    .executive-brief {
-        background: #FFFFFF;
-        border: 1px solid var(--tp-line);
-        border-radius: 24px;
-        padding: 22px;
-        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
-        line-height: 1.65;
-    }
-
-    div[data-testid="stTabs"] button {
-        border-radius: 999px;
-        font-weight: 700;
-    }
-
-    .stDownloadButton button, .stButton button {
-        border-radius: 999px !important;
-        font-weight: 750 !important;
-        border: 1px solid var(--tp-line) !important;
-    }
-
-    h1, h2, h3 {
-        color: var(--tp-ink);
-        letter-spacing: -0.4px;
-    }
-
-
-    .feedback-card {
-        background: linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%);
-        border: 1px solid var(--tp-line);
-        border-radius: 24px;
-        padding: 22px;
-        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.055);
-        margin: 16px 0;
-        line-height: 1.6;
-    }
-
-    .feedback-card h3 {
-        margin-top: 0;
-        margin-bottom: 8px;
     }
 
     .contact-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 12px;
-        margin-top: 14px;
+        gap: 10px;
+        margin-top: 13px;
     }
 
     .contact-item {
-        background: #F8FAFC;
+        padding: 13px 14px;
+        border-radius: 14px;
+        background: #F7F9FD;
         border: 1px solid var(--tp-line);
-        border-radius: 16px;
-        padding: 14px 15px;
-        font-size: 14px;
+        font-size: 12px;
     }
 
     .contact-item b {
         display: block;
+        margin-bottom: 3px;
         color: var(--tp-ink);
-        margin-bottom: 4px;
     }
 
     .tp-footer {
-        margin-top: 34px;
-        padding: 22px 24px;
+        margin-top: 30px;
+        padding: 20px 22px;
         border: 1px solid var(--tp-line);
-        border-radius: 24px;
-        background: #FFFFFF;
+        border-radius: 20px;
+        background: rgba(255,255,255,0.78);
         color: var(--tp-muted);
-        font-size: 13px;
+        font-size: 11.5px;
         line-height: 1.55;
-        box-shadow: 0 12px 26px rgba(15, 23, 42, 0.045);
+        box-shadow: 0 12px 32px rgba(25,39,74,0.05);
     }
 
-    .tp-footer b {
+    .tp-footer b { color: var(--tp-ink); }
+
+    .launch-state {
+        position: relative;
+        overflow: hidden;
+        padding: 25px;
+        border-radius: 22px;
+        border: 1px solid rgba(53,92,255,0.16);
+        background:
+            radial-gradient(circle at 90% 10%, rgba(22,184,198,0.12), transparent 30%),
+            linear-gradient(135deg, #F8FAFF, #F3F7FF);
+        box-shadow: 0 14px 40px rgba(25,39,74,0.07);
+    }
+
+    .launch-state .launch-tag {
+        display: inline-flex;
+        padding: 6px 9px;
+        margin-bottom: 10px;
+        border-radius: 999px;
+        color: #2447D8;
+        background: #E8EFFF;
+        font-size: 9px;
+        font-weight: 900;
+        letter-spacing: .9px;
+        text-transform: uppercase;
+    }
+
+    .launch-state h3 {
+        margin: 0 0 8px 0;
         color: var(--tp-ink);
+        font-size: 22px;
+        letter-spacing: -.6px;
+    }
+
+    .launch-state p {
+        max-width: 820px;
+        margin: 0;
+        color: #596579;
+        line-height: 1.6;
+        font-size: 13px;
+    }
+
+    /* Streamlit-native components */
+    div[data-testid="stTabs"] [data-baseweb="tab-list"] {
+        gap: 6px;
+        overflow-x: auto;
+        padding: 8px 4px 9px 4px;
+        scrollbar-width: thin;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"] {
+        height: 38px;
+        padding: 0 14px;
+        border-radius: 999px;
+        color: #596579;
+        background: rgba(255,255,255,0.74);
+        border: 1px solid var(--tp-line);
+        font-weight: 750;
+        white-space: nowrap;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
+        color: #FFFFFF;
+        background: linear-gradient(135deg, #213A8F, #355CFF);
+        border-color: transparent;
+        box-shadow: 0 8px 22px rgba(53,92,255,0.20);
+    }
+
+    .stDownloadButton button,
+    .stButton button {
+        min-height: 40px;
+        border-radius: 12px !important;
+        font-weight: 780 !important;
+        border: 1px solid var(--tp-line) !important;
+        box-shadow: 0 5px 14px rgba(25,39,74,0.05);
+        transition: transform .16s ease, box-shadow .16s ease !important;
+    }
+
+    .stDownloadButton button:hover,
+    .stButton button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 9px 22px rgba(25,39,74,0.10);
+    }
+
+    div[data-baseweb="select"] > div,
+    .stTextInput input,
+    .stTextArea textarea,
+    .stNumberInput input {
+        border-radius: 12px !important;
+    }
+
+    [data-testid="stDataFrame"] {
+        border: 1px solid var(--tp-line);
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 10px 28px rgba(25,39,74,0.045);
+    }
+
+    hr {
+        border: none !important;
+        border-top: 1px solid var(--tp-line) !important;
+    }
+
+    h1, h2, h3 {
+        color: var(--tp-ink);
+        letter-spacing: -0.55px;
+    }
+
+    @media (max-width: 960px) {
+        .hero-grid { grid-template-columns: 1fr; }
+        .pulse-panel { max-width: 100%; }
+        .status-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
     }
 
     @media (max-width: 768px) {
         .block-container {
-            padding-left: 1rem;
-            padding-right: 1rem;
+            padding-left: .85rem;
+            padding-right: .85rem;
         }
 
         .hero {
-            padding: 26px 22px;
-            border-radius: 22px;
+            padding: 23px 20px;
+            border-radius: 23px;
         }
 
         .hero-title {
-            font-size: 32px;
-            line-height: 1.08;
+            font-size: 39px;
+            letter-spacing: -1.8px;
         }
 
-        .hero-subtitle {
-            font-size: 15px;
-        }
+        .hero-subtitle { font-size: 14px; }
+        .hero-meta { gap: 6px; }
+        .meta-chip { font-size: 10px; }
 
         .kpi-card {
             min-height: auto;
             padding: 16px;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
         }
 
-        .kpi-value {
-            font-size: 26px;
-        }
+        .analyst-grid,
+        .contact-grid,
+        .status-grid { grid-template-columns: 1fr; }
 
-        .analyst-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .contact-grid {
-            grid-template-columns: 1fr;
-        }
+        .status-value { white-space: normal; }
     }
 </style>
 """, unsafe_allow_html=True)
 
 # -----------------------------
-# Sidebar
+# Sidebar + fiscal-year data discovery
 # -----------------------------
 
-st.sidebar.title("Controls")
-st.sidebar.caption("Upload a Department of Customs Excel file or use the default file in your data folder.")
+MONTH_NAME_ORDER = {
+    "shrawan": 1, "shravan": 1, "srawan": 1,
+    "bhadra": 2, "bhadraw": 2,
+    "ashwin": 3, "asoj": 3, "ashoj": 3,
+    "kartik": 4, "karthik": 4,
+    "mangsir": 5, "margshir": 5,
+    "poush": 6, "paush": 6,
+    "magh": 7,
+    "falgun": 8, "phalgun": 8, "fagun": 8,
+    "chaitra": 9, "chait": 9,
+    "baisakh": 10, "baishakh": 10, "vaisakh": 10,
+    "jestha": 11, "jeth": 11,
+    "ashadh": 12, "asad": 12, "asar": 12,
+}
+
+
+def fiscal_year_key(folder_name):
+    """Return a sortable fiscal-year key for names such as 2083_84 or 2083-84."""
+    name = str(folder_name).strip()
+    match = re.fullmatch(r"(\d{4})\s*[_\-/]\s*(\d{2,4})", name)
+    if not match:
+        return None
+    start_year = int(match.group(1))
+    end_text = match.group(2)
+    end_year = int(end_text) if len(end_text) == 4 else int(str(start_year)[:2] + end_text)
+    return start_year, end_year
+
+
+def fiscal_year_display(folder_name):
+    key = fiscal_year_key(folder_name)
+    if not key:
+        return None
+    start_year, end_year = key
+    return f"FY {start_year}/{str(end_year)[-2:]}"
+
+
+def monthly_file_sort_key(path):
+    """Sort fiscal-month workbooks reliably even when a numeric prefix is absent."""
+    stem = Path(path).stem.lower().replace("-", " ").replace("_", " ")
+    prefix = re.match(r"\s*(\d{1,2})\b", stem)
+    if prefix:
+        number = int(prefix.group(1))
+        if 1 <= number <= 12:
+            return number, stem
+
+    for month_name, order in MONTH_NAME_ORDER.items():
+        if month_name in stem:
+            return order, stem
+
+    return 999, stem
+
+
+def clean_period_label(file_path):
+    try:
+        stem = Path(file_path).stem
+    except Exception:
+        stem = str(file_path)
+
+    stem = stem.replace("_", " ").replace("-", " ").strip()
+    stem = re.sub(r"^\s*\d{1,2}\s+", "", stem)
+    stem = re.sub(r"\s+", " ", stem)
+    return stem or "Not available"
+
+
+def discover_active_monthly_data(root_path):
+    """Select the newest fiscal-year folder, falling back to root-level Excel files."""
+    root_path = Path(root_path)
+    if not root_path.exists():
+        return root_path, None, []
+
+    fy_candidates = []
+    for child in root_path.iterdir():
+        if child.is_dir():
+            key = fiscal_year_key(child.name)
+            if key:
+                fy_candidates.append((key, child))
+
+    if fy_candidates:
+        _, active_path = max(fy_candidates, key=lambda item: item[0])
+    else:
+        active_path = root_path
+
+    files = sorted(active_path.glob("*.xlsx"), key=monthly_file_sort_key)
+    active_fy = fiscal_year_display(active_path.name) if active_path != root_path else None
+    return active_path, active_fy, files
+
+
+st.sidebar.markdown(
+    """
+    <div class="side-brand">
+        <div class="side-logo">TP</div>
+        <div>
+            <div class="side-brand-title">TradePulse Nepal</div>
+            <div class="side-brand-sub">Trade intelligence · Nepal</div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.sidebar.markdown("### Data Controls")
+st.sidebar.caption(
+    "Upload a Department of Customs workbook for temporary analysis, or let TradePulse automatically use the latest file from the newest fiscal-year folder."
+)
 
 uploaded_file = st.sidebar.file_uploader(
     "Upload customs Excel file",
@@ -377,34 +844,28 @@ uploaded_file = st.sidebar.file_uploader(
     key="customs_excel_uploader"
 )
 
-default_file_path = Path(__file__).parent / "customs.xlsx"
-monthly_data_path = Path(__file__).parent / "monthly_data"
-developer_photo_path = Path(__file__).parent / "utsav.png"
+app_root = Path(__file__).parent
+default_file_path = app_root / "customs.xlsx"
+monthly_root_path = app_root / "monthly_data"
+developer_photo_path = app_root / "utsav.png"
 
-# Main dashboard needs one workbook as its default view.
-# Priority: user upload → customs.xlsx → latest file inside monthly_data.
-latest_monthly_file = None
-if monthly_data_path.exists():
-    monthly_files_for_default = sorted(monthly_data_path.glob("*.xlsx"))
-    if monthly_files_for_default:
-        latest_monthly_file = monthly_files_for_default[-1]
+monthly_data_path, active_fy_label, monthly_files_for_default = discover_active_monthly_data(monthly_root_path)
+latest_monthly_file = monthly_files_for_default[-1] if monthly_files_for_default else None
 
+# Production priority:
+# user upload -> newest file in newest fiscal-year folder -> customs.xlsx fallback.
+# This prevents a stale customs.xlsx from silently overriding a newer monthly release.
 if uploaded_file is not None:
     file_source = uploaded_file
-elif default_file_path.exists():
-    file_source = default_file_path
 elif latest_monthly_file is not None:
     file_source = latest_monthly_file
+elif default_file_path.exists():
+    file_source = default_file_path
 else:
-    st.warning("Please add customs.xlsx to the app folder, or add monthly Excel files inside monthly_data.")
+    st.warning(
+        "No Customs workbook was found. Add customs.xlsx, or create monthly_data/<FY>/ and place at least one .xlsx file inside it."
+    )
     st.stop()
-
-def clean_period_label(file_path):
-    try:
-        stem = Path(file_path).stem
-    except Exception:
-        stem = str(file_path)
-    return stem.replace("_", " ").replace("-", " ").strip()
 
 
 def data_source_name(file_obj):
@@ -418,15 +879,15 @@ def data_source_name(file_obj):
 
 def data_source_type(uploaded_file, default_file_path, latest_monthly_file, file_source):
     if uploaded_file is not None:
-        return "Uploaded file"
+        return "Temporary uploaded workbook"
+    if latest_monthly_file is not None and Path(file_source) == latest_monthly_file:
+        return "Latest fiscal-year release"
     if default_file_path.exists() and Path(file_source) == default_file_path:
-        return "Default customs.xlsx"
-    if latest_monthly_file is not None:
-        return "Latest monthly_data file"
+        return "Fallback customs.xlsx"
     return "Workbook"
 
 
-monthly_files_count = len(monthly_files_for_default) if monthly_data_path.exists() else 0
+monthly_files_count = len(monthly_files_for_default)
 latest_month_label = clean_period_label(latest_monthly_file) if latest_monthly_file is not None else "Not available"
 source_file_label = data_source_name(file_source)
 source_type_label = data_source_type(uploaded_file, default_file_path, latest_monthly_file, file_source)
@@ -434,16 +895,18 @@ source_type_label = data_source_type(uploaded_file, default_file_path, latest_mo
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Data Status")
 st.sidebar.write(f"**Source:** {source_type_label}")
-st.sidebar.write(f"**File:** {source_file_label}")
-st.sidebar.write(f"**Monthly files:** {monthly_files_count}")
-st.sidebar.info("Source values are in Rs. thousands. Dashboard values are shown in Rs. billion.")
-st.sidebar.markdown("**Version:** Public MVP 0.7 — Cloud Stable Gemini")
+if active_fy_label:
+    st.sidebar.write(f"**Active fiscal year:** {active_fy_label}")
+st.sidebar.write(f"**Latest month:** {latest_month_label}")
+st.sidebar.write(f"**Monthly releases:** {monthly_files_count}")
+st.sidebar.caption(f"File: {source_file_label}")
+st.sidebar.info("Source values are in Rs. thousands. TradePulse displays monetary values in Rs. billion.")
+st.sidebar.markdown("**Build:** TradePulse 1.0 · FY-aware")
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### Feedback")
-st.sidebar.caption("Found an issue or have an idea?")
+st.sidebar.markdown("### Connect")
+st.sidebar.markdown("[GitHub · utsavhatescoding](https://github.com/utsavhatescoding)")
 st.sidebar.markdown("Email: **utsavkphuyal@gmail.com**")
-st.sidebar.markdown("GitHub: **github.com/utsavhatescoding**")
 
 # -----------------------------
 # Load Excel
@@ -692,7 +1155,7 @@ def build_product_movement_table(trend_files, sheet_name, value_col):
     monthly_tables = []
     periods = []
 
-    for file_path in sorted(trend_files):
+    for file_path in sorted(trend_files, key=monthly_file_sort_key):
         period = file_path.stem.replace("_", " ")
         periods.append(period)
 
@@ -748,7 +1211,7 @@ def build_trend_summary_for_report(monthly_data_path):
         if not monthly_data_path.exists():
             return None
 
-        trend_files = sorted(monthly_data_path.glob("*.xlsx"))
+        trend_files = sorted(monthly_data_path.glob("*.xlsx"), key=monthly_file_sort_key)
         if len(trend_files) < 2:
             return None
 
@@ -857,12 +1320,15 @@ def short_text(text, max_len=58):
 
 
 def kpi_card(label, value, note):
+    safe_label = html.escape(str(label))
+    safe_value = html.escape(str(value))
+    safe_note = html.escape(str(note))
     st.markdown(
         f"""
         <div class="kpi-card">
-            <div class="kpi-label">{label}</div>
-            <div class="kpi-value">{value}</div>
-            <div class="kpi-note">{note}</div>
+            <div class="kpi-label">{safe_label}</div>
+            <div class="kpi-value">{safe_value}</div>
+            <div class="kpi-note">{safe_note}</div>
         </div>
         """,
         unsafe_allow_html=True
@@ -1594,7 +2060,7 @@ def product_monthly_movement(monthly_data_path, hscode, direction="import"):
         if not monthly_data_path.exists():
             return pd.DataFrame()
 
-        trend_files = sorted(monthly_data_path.glob("*.xlsx"))
+        trend_files = sorted(monthly_data_path.glob("*.xlsx"), key=monthly_file_sort_key)
         if len(trend_files) < 2:
             return pd.DataFrame()
 
@@ -1645,7 +2111,7 @@ def trend_monthly_signal(monthly_data_path):
         if not monthly_data_path.exists():
             return None
 
-        trend_files = sorted(monthly_data_path.glob("*.xlsx"))
+        trend_files = sorted(monthly_data_path.glob("*.xlsx"), key=monthly_file_sort_key)
         if len(trend_files) < 2:
             return None
 
@@ -1792,7 +2258,7 @@ def build_automated_insights(
 
     insights["brief_text"] = f"""TradePulse Nepal — Automated Trade Analyst Brief
 
-Current period: {current_col}
+Current period: {current_period_display}
 Source: Department of Customs monthly foreign trade data
 Unit: Rs. billion, converted from source values in Rs. thousands
 
@@ -2168,7 +2634,7 @@ def build_tradepulse_ai_context(
 TradePulse Nepal processed data context
 Data source: Department of Customs, Government of Nepal
 Main dashboard file: {source_file_label}
-Current period/column: {current_col}
+Current period/column: {current_period_display}
 Latest monthly file: {latest_month_label}
 Monthly files loaded: {monthly_files_count}
 Unit: Rs. billion, converted from source values in Rs. thousands
@@ -2301,7 +2767,7 @@ def build_compact_gemini_context(
         try:
             if not monthly_data_path:
                 return f"{label} movement not available."
-            trend_files = sorted(Path(monthly_data_path).glob("*.xlsx"))
+            trend_files = sorted(Path(monthly_data_path).glob("*.xlsx"), key=monthly_file_sort_key)
             if len(trend_files) < 2:
                 return f"{label} movement not available."
             movement = build_product_movement_table(trend_files, sheet_name, value_col)
@@ -2338,7 +2804,7 @@ def build_compact_gemini_context(
         try:
             if not monthly_data_path:
                 return "Monthly trend table not available."
-            trend_files = sorted(Path(monthly_data_path).glob("*.xlsx"))
+            trend_files = sorted(Path(monthly_data_path).glob("*.xlsx"), key=monthly_file_sort_key)
             rows = []
             for file_path in trend_files:
                 try:
@@ -2390,7 +2856,7 @@ def build_compact_gemini_context(
 TradePulse Nepal detailed processed context
 Source: Department of Customs, Nepal
 Dashboard file: {source_file_label}
-Current period/column: {current_col}
+Current period/column: {current_period_display}
 Latest monthly file: {latest_month_label}
 Monthly files loaded: {monthly_files_count}
 Units: Rs. billion converted from source values in Rs. thousands
@@ -2508,8 +2974,7 @@ USER QUESTION:
 # Prepare data
 # -----------------------------
 
-# Find the current/latest value column for the main dashboard.
-# Some files use a full FY column name, while Shrawan uses "current".
+# Find the latest/current value column dynamically. Never hard-code a fiscal year.
 possible_year_cols = []
 
 for col in trade.columns:
@@ -2526,18 +2991,29 @@ for col in trade.columns:
     if numeric_series.notna().sum() >= 3:
         possible_year_cols.append(col)
 
-preferred_cols = [
-    col for col in possible_year_cols
-    if "2082/83" in str(col) or str(col).strip().lower() == "current"
-]
+if not possible_year_cols:
+    st.error("No usable fiscal-year value column was found in 1_Trade_Direction.")
+    st.stop()
 
-current_col = (
-    "FY 2082/83 (First 11 Months)"
-    if "FY 2082/83 (First 11 Months)" in trade.columns
-    else preferred_cols[-1]
-    if preferred_cols
-    else possible_year_cols[-1]
+
+def trade_column_sort_key(column_name, fallback_index):
+    text_value = str(column_name).strip()
+    fy_match = re.search(r"(20\d{2})\s*/\s*(\d{2,4})", text_value)
+    if fy_match:
+        return 3, int(fy_match.group(1)), fallback_index
+    if text_value.lower() == "current" or "current" in text_value.lower():
+        return 4, 9999, fallback_index
+    return 1, fallback_index, fallback_index
+
+current_col = max(
+    possible_year_cols,
+    key=lambda col: trade_column_sort_key(col, possible_year_cols.index(col))
 )
+previous_cols = [col for col in possible_year_cols if col != current_col]
+previous_col = previous_cols[-1] if previous_cols else None
+
+# Normalize spacing only for presentation; keep the exact column name for lookups.
+current_period_display = re.sub(r"\s+", " ", str(current_col)).strip()
 
 imports_total_raw = get_trade_value(r"^Imports\s*\(", current_col)
 exports_total_raw = get_trade_value(r"^Exports\s*\(", current_col)
@@ -2550,6 +3026,33 @@ deficit_total = rs_thousand_to_billion(deficit_total_raw)
 total_trade = rs_thousand_to_billion(total_trade_raw)
 
 import_export_ratio = imports_total_raw / exports_total_raw if exports_total_raw else 0
+
+
+def percent_change(current_value, previous_value):
+    if previous_value in (None, 0):
+        return None
+    return ((current_value - previous_value) / abs(previous_value)) * 100
+
+
+def delta_text(delta_value, positive_word="vs prior comparable period"):
+    if delta_value is None:
+        return "Current release baseline"
+    arrow = "↑" if delta_value > 0 else "↓" if delta_value < 0 else "→"
+    sign = "+" if delta_value > 0 else ""
+    return f"{arrow} {sign}{delta_value:,.1f}% {positive_word}"
+
+if previous_col is not None:
+    previous_imports_raw = get_trade_value(r"^Imports\s*\(", previous_col)
+    previous_exports_raw = get_trade_value(r"^Exports\s*\(", previous_col)
+    previous_deficit_raw = get_trade_value(r"Trade\s+Deficit", previous_col)
+    previous_ratio_raw = get_trade_value(r"Imports/Exports\s+Ratio|Imports\s*/\s*Exports\s+Ratio", previous_col)
+
+    imports_delta_pct = percent_change(imports_total_raw, previous_imports_raw)
+    exports_delta_pct = percent_change(exports_total_raw, previous_exports_raw)
+    deficit_delta_pct = percent_change(deficit_total_raw, previous_deficit_raw)
+    ratio_delta_pct = percent_change(import_export_ratio, previous_ratio_raw if previous_ratio_raw else None)
+else:
+    imports_delta_pct = exports_delta_pct = deficit_delta_pct = ratio_delta_pct = None
 
 imports = imports.copy()
 exports = exports.copy()
@@ -2636,17 +3139,59 @@ automated_insights = build_automated_insights(
 )
 
 # -----------------------------
-# Hero section
+# Hero + executive status
 # -----------------------------
 
+hero_fy = active_fy_label or current_period_display.split("(")[0].strip()
+hero_month = latest_month_label if latest_month_label != "Not available" else "Current release"
+
+safe_hero_fy = html.escape(str(hero_fy))
+safe_hero_month = html.escape(str(hero_month))
+safe_period = html.escape(current_period_display)
+safe_source = html.escape(str(source_type_label))
+safe_file = html.escape(str(source_file_label))
+
 st.markdown(
-    """
+    f"""
     <div class="hero">
-        <div class="pill">Nepal Trade Intelligence · Customs Data</div>
-        <div class="hero-title">TradePulse Nepal</div>
-        <div class="hero-subtitle">
-            A free public trade-intelligence dashboard that converts monthly Department of Customs data into market trends,
-            product movement, country dependence, customs route signals, business opportunities, and policy risks.
+        <div class="hero-grid">
+            <div>
+                <div class="brand-lockup">
+                    <div class="brand-mark">TP</div>
+                    <div>
+                        <div class="brand-name">TradePulse Nepal</div>
+                        <div class="brand-line">Nepal · Trade Intelligence System</div>
+                    </div>
+                </div>
+                <div class="hero-kicker">Department of Customs data · transformed into signals</div>
+                <div class="hero-title">See Nepal's trade <span>before it becomes a headline.</span></div>
+                <div class="hero-subtitle">
+                    Explore products, sectors, partner countries, customs routes and market movement from Nepal's official trade releases —
+                    with decision-ready signals for business, research and policy.
+                </div>
+                <div class="hero-meta">
+                    <span class="meta-chip live">{safe_hero_fy}</span>
+                    <span class="meta-chip">{safe_hero_month}</span>
+                    <span class="meta-chip">{monthly_files_count} release{'s' if monthly_files_count != 1 else ''} loaded</span>
+                    <span class="meta-chip">Rs billion view</span>
+                </div>
+            </div>
+            <div class="pulse-panel">
+                <div class="pulse-head"><span>Market pulse</span><span>LIVE RELEASE</span></div>
+                <div class="pulse-period">{safe_period}</div>
+                <div class="pulse-row">
+                    <span>Imports</span><strong>Rs {imports_total:,.2f}B</strong>
+                    <em>{html.escape(delta_text(imports_delta_pct))}</em>
+                </div>
+                <div class="pulse-row">
+                    <span>Exports</span><strong>Rs {exports_total:,.2f}B</strong>
+                    <em>{html.escape(delta_text(exports_delta_pct))}</em>
+                </div>
+                <div class="pulse-row">
+                    <span>Trade deficit</span><strong>Rs {deficit_total:,.2f}B</strong>
+                    <em>{html.escape(delta_text(deficit_delta_pct))}</em>
+                </div>
+            </div>
         </div>
     </div>
     """,
@@ -2660,33 +3205,49 @@ st.markdown(
 k1, k2, k3, k4 = st.columns(4)
 
 with k1:
-    kpi_card("Total Imports", f"Rs {imports_total:,.2f}B", "Import bill for selected period")
+    kpi_card("Total Imports", f"Rs {imports_total:,.2f}B", delta_text(imports_delta_pct))
 
 with k2:
-    kpi_card("Total Exports", f"Rs {exports_total:,.2f}B", "Export earnings for selected period")
+    kpi_card("Total Exports", f"Rs {exports_total:,.2f}B", delta_text(exports_delta_pct))
 
 with k3:
-    kpi_card("Trade Deficit", f"Rs {deficit_total:,.2f}B", "External trade gap")
+    kpi_card("Trade Deficit", f"Rs {deficit_total:,.2f}B", delta_text(deficit_delta_pct))
 
 with k4:
-    kpi_card("Import / Export Ratio", f"{import_export_ratio:,.1f}x", "Imports compared to exports")
+    kpi_card("Import / Export Ratio", f"{import_export_ratio:,.2f}x", delta_text(ratio_delta_pct))
 
-st.markdown("### Data Status")
-
-ds1, ds2, ds3, ds4 = st.columns(4)
-with ds1:
-    st.metric("Dashboard source", source_type_label)
-with ds2:
-    st.metric("Current period", str(current_col))
-with ds3:
-    st.metric("Latest monthly file", latest_month_label)
-with ds4:
-    st.metric("Monthly files loaded", monthly_files_count)
-
-st.caption(
-    f"Using `{source_file_label}` for the main dashboard. "
-    f"Source values are in Rs. thousands and shown here in Rs. billion. "
-    "Ask TradePulse and Insights use only the processed Customs data available in this app."
+st.markdown(
+    f"""
+    <div class="status-shell">
+        <div class="status-head">
+            <div class="status-title">Data release status</div>
+            <div class="status-trust">● official-source workbook loaded</div>
+        </div>
+        <div class="status-grid">
+            <div class="status-card">
+                <div class="status-label">Dashboard source</div>
+                <div class="status-value">{safe_source}</div>
+            </div>
+            <div class="status-card">
+                <div class="status-label">Current period</div>
+                <div class="status-value">{safe_period}</div>
+            </div>
+            <div class="status-card">
+                <div class="status-label">Latest release</div>
+                <div class="status-value">{safe_hero_month}</div>
+            </div>
+            <div class="status-card">
+                <div class="status-label">FY releases loaded</div>
+                <div class="status-value">{monthly_files_count}</div>
+            </div>
+        </div>
+        <div class="status-note">
+            Using <b>{safe_file}</b>. Source monetary values are Rs. thousands and are converted to Rs. billion for presentation.
+            Insights and AI features use the processed Customs data available in this app.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 # -----------------------------
@@ -3734,15 +4295,37 @@ with trend_tab:
         unsafe_allow_html=True
     )
 
-    monthly_data_path = Path(__file__).parent / "monthly_data"
-
     if not monthly_data_path.exists():
-        st.warning("monthly_data folder not found. Please add monthly Excel files inside a folder named monthly_data.")
+        st.warning("No active monthly-data folder was found. Add monthly_data/<FY>/ and place monthly Customs workbooks inside it.")
     else:
-        trend_files = sorted(monthly_data_path.glob("*.xlsx"))
+        trend_files = sorted(monthly_data_path.glob("*.xlsx"), key=monthly_file_sort_key)
 
-        if len(trend_files) < 2:
-            st.warning("Please add at least two monthly Excel files inside the monthly_data folder.")
+        if len(trend_files) == 0:
+            st.info("No monthly Customs files are available in the active fiscal-year folder yet.")
+        elif len(trend_files) < 2:
+            try:
+                baseline = extract_trade_snapshot_from_file(trend_files[0], trend_files[0].name)
+                st.markdown(
+                    f"""
+                    <div class="launch-state">
+                        <div class="launch-tag">Fiscal year baseline established</div>
+                        <h3>{html.escape(str(baseline['Period']))} is the first release in this fiscal year.</h3>
+                        <p>Month-on-month movement needs a second cumulative Customs release. TradePulse will activate the full trend engine automatically when the next workbook is added to <b>{html.escape(str(monthly_data_path.name))}</b>. The current release is already available across Overview, Products, Sectors, Countries, Customs Routes, Insights and AI tools.</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                b1, b2, b3, b4 = st.columns(4)
+                with b1:
+                    kpi_card("Baseline Imports", f"Rs {baseline['Imports_Billion']:,.2f}B", "First fiscal-month release")
+                with b2:
+                    kpi_card("Baseline Exports", f"Rs {baseline['Exports_Billion']:,.2f}B", "First fiscal-month release")
+                with b3:
+                    kpi_card("Baseline Deficit", f"Rs {baseline['Trade_Deficit_Billion']:,.2f}B", "First fiscal-month release")
+                with b4:
+                    kpi_card("Trend Readiness", "1 / 2", "Add the next month to unlock movement")
+            except Exception as e:
+                st.warning(f"The first monthly release exists but could not be processed for the trend baseline: {e}")
         else:
             trend_rows = []
 
@@ -4316,7 +4899,7 @@ with about_tab:
 
     dsn1, dsn2, dsn3 = st.columns(3)
     with dsn1:
-        st.metric("Current period", str(current_col))
+        st.metric("Current period", current_period_display)
     with dsn2:
         st.metric("Monthly files loaded", monthly_files_count)
     with dsn3:
@@ -4582,7 +5165,7 @@ with insight_tab:
         unsafe_allow_html=True
     )
 
-    trend_summary_for_pdf = build_trend_summary_for_report(Path(__file__).parent / "monthly_data")
+    trend_summary_for_pdf = build_trend_summary_for_report(monthly_data_path)
 
     pdf_buffer = create_pdf_report(
         current_col=current_col,
@@ -4700,7 +5283,7 @@ with ask_tab:
             exports=exports,
             countries=countries,
             customs=customs,
-            monthly_data_path=Path(__file__).parent / "monthly_data"
+            monthly_data_path=monthly_data_path
         )
         st.session_state["ask_tradepulse_answer"] = answer
 
